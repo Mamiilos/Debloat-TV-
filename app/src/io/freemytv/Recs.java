@@ -61,7 +61,7 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 5;
+    private static final int CACHE_VERSION = 6;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -243,6 +243,7 @@ final class Recs {
             shown.add(key(p));
         }
         cache.edit().putString("sel:" + slot, sel.toString()).putStringSet("shown:" + slot, shown).apply();
+        AppLog.w("recs " + slot + ": " + list.size() + " candidates, " + shown.size() + " shown so far, picked " + sel);
         return out;
     }
 

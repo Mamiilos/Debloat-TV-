@@ -122,7 +122,7 @@ public class SettingsActivity extends Activity {
         private final SettingsActivity activity;
         private final Scene scene = new Scene();
         private final Handler handler = new Handler(Looper.getMainLooper());
-        private final Spring[] pop = new Spring[12];
+        private final Spring[] pop = new Spring[16];
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
         private final List<String> pickLabels = new ArrayList<>();
@@ -356,7 +356,7 @@ public class SettingsActivity extends Activity {
                 lastSky = up;
                 scene.advance(seconds);
             }
-            scene.drawBackground(c);
+            c.drawColor(0xFF0B0B0D);   // settings are dark, whatever the sky outside
 
             // On the left: big symbol, title, description.
             float cx = 500 * k;
@@ -647,6 +647,7 @@ public class SettingsActivity extends Activity {
             if (dollar()) l.add(Ui.tr("Dollar"));
             l.add("Fondos");
             l.add("Orden del dock");
+            l.add("Ajustes del modo ambiente");
             return l.toArray(new String[0]);
         }
 
@@ -666,8 +667,9 @@ public class SettingsActivity extends Activity {
             v[6] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
-            v[v.length-2] = new String[]{"Original", "Paisajes rotativos", "Mixto"}[Prefs.backgroundMode()];
-            v[v.length-1] = Prefs.dockAuto() ? "Automático" : "Manual";
+            v[v.length-3] = new String[]{"Original", "Paisajes rotativos", "Mixto"}[Prefs.backgroundMode()];
+            v[v.length-2] = Prefs.dockAuto() ? "Automático" : "Manual";
+            v[v.length-1] = "Abrir";
             return v;
         }
 
@@ -731,8 +733,16 @@ public class SettingsActivity extends Activity {
                 Prefs.setKeyApp(Prefs.KEYS[focus], appPkgs.get(next));
                 return;
             }
-            if (focus == settingLabels().length-2) { Prefs.cycleBackgroundMode(); return; }
-            if (focus == settingLabels().length-1) { Prefs.setDockAuto(!Prefs.dockAuto()); return; }
+            if (focus == settingLabels().length-3) { Prefs.cycleBackgroundMode(); return; }
+            if (focus == settingLabels().length-2) { Prefs.setDockAuto(!Prefs.dockAuto()); return; }
+            if (focus == settingLabels().length-1) {
+                // The screensaver's own settings: the AerialViews+ fork when installed, else the original Aerial Views.
+                for (String pkg : new String[]{"com.hectorx24.aerialviewsplus", "com.neilturner.aerialviews"}) {
+                    Intent open = getContext().getPackageManager().getLaunchIntentForPackage(pkg);
+                    if (open != null) { activity.startActivity(open); return; }
+                }
+                return;
+            }
             switch (focus) {
                 case 0: break;   // OK opens the language picker.
                 case 1: {
@@ -952,21 +962,26 @@ public class SettingsActivity extends Activity {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             c.drawText(keys ? Ui.tr("Remote Buttons") : Ui.tr("Home Settings"),
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            // More rows than the screen holds: the list scrolls so the focused row stays in view.
+            float off = Math.max(0, (focus + 1) * (LIST_ROW_H + LIST_ROW_GAP) + LIST_TOP + 20 - 1000);
+            c.save();
+            c.clipRect(0, (LIST_TOP + 8) * k, c.getWidth(), c.getHeight());
             for (int i = 0; i < labels.length; i++) {
-                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
+                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP) - off) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
-                boolean locked = !keys && i >= COIN_ROWS && i < settingLabels().length - 2 && !Prefs.quotes();
+                boolean locked = !keys && i >= COIN_ROWS && i < settingLabels().length - 3 && !Prefs.quotes();
                 rowValue.setColor(blend(locked ? 0x59FFFFFF : 0xB3FFFFFF, locked ? 0x591C1C1E : 0xB31C1C1E, f));
                 if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
                 c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);
             }
+            c.restore();
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
-            c.drawText(Ui.tr("OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
+            float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36 - off) * k;
+            if (hy < c.getHeight()) c.drawText(Ui.tr("OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video and Google Play: the TV itself controls those buttons.")
                         : RemoteKeys.KTC ? Ui.tr("Netflix, YouTube and Prime Video: the TV itself controls those buttons.")

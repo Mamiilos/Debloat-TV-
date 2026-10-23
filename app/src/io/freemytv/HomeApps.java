@@ -152,7 +152,6 @@ final class HomeApps {
             "com.disney.starplus",                  // Star+ (merged into Disney+)
             "com.tcl.exhibit",                      // TCL: T-Exhibition
             "com.neilturner.aerialviews",           // Aerial Views: it has its own button in the corner
-            "com.hectorx24.aerialviewsplus",        // AerialViews+ fork: same button
             "com.amazon.firebat",                   // Fire OS's own Prime Video (the installed APK is the one in use)
             "com.amazon.shoptv.client", "com.amazon.shoptv.firetv.client"));   // Amazon Live Shopping
 
