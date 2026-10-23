@@ -211,13 +211,20 @@
     box.style.background = 'linear-gradient(' + top + ', ' + bottom + ')';
   }
 
-  function showLogo(img, box, top, bottom, logo) {
+  /** A color that is clearly a hue (Crunchyroll's orange), not black, white or a gray. */
+  function colorful(rgb) {
+    return Math.max(rgb[0], rgb[1], rgb[2]) - Math.min(rgb[0], rgb[1], rgb[2]) >= 96;
+  }
+
+  /** own: the tile has the TV's color for the app, not one of SHELF's. */
+  function showLogo(img, box, top, bottom, logo, own) {
     img.className = 'logo';
     img.src = logo.src;
     var a = rgbOf(top), z = rgbOf(bottom);
     var tileLum = (luminance(a[0], a[1], a[2]) + luminance(z[0], z[1], z[2])) / 2;
-    if (logo.bg && unseen(logo.ink, tileLum) > 0.35) {
-      // the logo only reads on its own background: the tile takes it
+    // The tile takes the icon's background when the logo only reads on it, and when that background is the brand's
+    // color: LG's bgColor isn't always the icon's (Crunchyroll's is black, on an orange icon).
+    if (logo.bg && ((own && colorful(logo.bg)) || unseen(logo.ink, tileLum) > 0.35)) {
       var bg = 'rgb(' + logo.bg.join(',') + ')';
       var hex = '#' + ((1 << 24) | (logo.bg[0] << 16) | (logo.bg[1] << 8) | logo.bg[2]).toString(16).slice(1);
       paint(box, bg, darken(hex, 0.93));
@@ -236,12 +243,12 @@
       var img = el('img', '', box), url = app.icon;
       word.style.visibility = 'hidden';
       img.onerror = function () { if (img.parentNode) img.parentNode.removeChild(img); word.style.visibility = ''; };
-      if (lifted[url]) { showLogo(img, box, top, bottom, lifted[url]); return; }
+      if (lifted[url]) { showLogo(img, box, top, bottom, lifted[url], !k); return; }
       if (lifted[url] !== false) {
         img.onload = function () {
           img.onload = null;
           if (lifted[url] === undefined) lifted[url] = lift(img);
-          if (lifted[url]) showLogo(img, box, top, bottom, lifted[url]);
+          if (lifted[url]) showLogo(img, box, top, bottom, lifted[url], !k);
         };
       }
       img.src = url;
