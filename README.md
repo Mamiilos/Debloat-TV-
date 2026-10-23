@@ -7,6 +7,14 @@
 | ![Dock](docs/fireos6/dock-scrolled.jpg) | ![Pac-Man last](docs/fireos6/pacman-last.jpg) |
 | ![Drawer with YouTube row](docs/fireos6/youtube-drawer-focus.jpg) | ![Aerial Views screensaver](docs/fireos6/screensaver-aerial.jpg) |
 
+| Ambient mode: glass clock and weather ([AerialViews+ fork](https://github.com/hectorx24/aerialviews-plus-fireos6)) | Its YouTube mix, own links and "play now" |
+|---|---|
+| ![Glass clock and weather](docs/fireos6/screensaver-glass.jpg) | ![AerialViews+ YouTube settings](docs/fireos6/aerialviews-plus-youtube-settings.jpg) |
+
+| Dark settings, with a row for the ambient mode's own settings |
+|---|
+| ![Settings](docs/fireos6/settings-dark.jpg) |
+
 > **Fire TV Stick 4K (Fire OS 6 / Android 7.1) edition · Edición para Fire TV Stick 4K:** this branch ports Free My TV to API 25 and adds a smart scrolling dock, a compact drawer with a YouTube row, an Aerial Views button, force-stop from the dock and more. Download the APK from **[Releases](https://github.com/hectorx24/free-my-tv-fireos6/releases/latest)**. Details, install and limits in **[FIREOS6.md](FIREOS6.md)** (English / Español). Real captures from the device.
 
 <div align="center">
