@@ -507,7 +507,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The three corner buttons, with their names in the current language. */
     private void makeLightButtons() {
         lightButtons.clear();
-        lightButtons.add(HomeApps.action(HomeApps.AERIAL, "aerial", "Aerial Views", "bedtime"));
+        lightButtons.add(HomeApps.action(HomeApps.AERIAL, "aerial", Ui.tr("Ambient mode"), "bedtime"));
         lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("HDMI Inputs"), "hdmi"));
         lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings", Ui.tr("TV Settings"), "settings"));   // the TV is own Settings; Free My TV is in the drawer
     }

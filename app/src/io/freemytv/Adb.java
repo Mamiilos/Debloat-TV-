@@ -64,13 +64,16 @@ final class Adb implements Closeable {
         out = socket.getOutputStream();
     }
 
-    /** Connects and authenticates. If the TV doesn't know our key yet, waits up to `approvalMs` for you to accept. */
-    static Adb connect(Context c, int approvalMs, Approval approval) throws IOException {
-        // This port is managed externally; never run the Google TV system mutation routines.
-        throw new IOException("Fire OS port: internal ADB is disabled");
+    /** True on Amazon's Fire TV devices. */
+    static boolean fireOs() {
+        return "Amazon".equalsIgnoreCase(android.os.Build.MANUFACTURER);
     }
 
-    private static Adb connectOriginal(Context c, int approvalMs, Approval approval) throws IOException {
+    /** Connects and authenticates. If the TV doesn't know our key yet, waits up to `approvalMs` for you to accept. */
+    static Adb connect(Context c, int approvalMs, Approval approval) throws IOException {
+        // Fire OS only: this edition never runs the switch's system-changing routines there (Amazon's components stay
+        // as they are and the home screen is picked by the owner). Everywhere else it connects as before.
+        if (fireOs()) throw new IOException("Fire OS: the Free My TV / Original switch is not available");
         KeyPair keys = keys(c);
         Socket s = new Socket();
         try {

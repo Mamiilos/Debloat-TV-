@@ -44,7 +44,7 @@ public class ModeJob extends JobService {
 
     /** Schedules a job (one pending per action: a new request replaces the old one). */
     static void schedule(Context c, String action, String mode, long delayMs) {
-        if (android.os.Build.VERSION.SDK_INT <= 25) return;
+        if (Adb.fireOs()) return;   // no switch jobs on Fire OS (see Adb.connect)
         JobScheduler scheduler = c.getSystemService(JobScheduler.class);
         if (scheduler == null) return;
         PersistableBundle extras = new PersistableBundle();

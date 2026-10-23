@@ -152,6 +152,7 @@ final class HomeApps {
             "com.disney.starplus",                  // Star+ (merged into Disney+)
             "com.tcl.exhibit",                      // TCL: T-Exhibition
             "com.neilturner.aerialviews",           // Aerial Views: it has its own button in the corner
+            "com.hectorx24.aerialviewsplus",        // AerialViews+ fork: same button
             "com.amazon.firebat",                   // Fire OS's own Prime Video (the installed APK is the one in use)
             "com.amazon.shoptv.client", "com.amazon.shoptv.firetv.client"));   // Amazon Live Shopping
 
@@ -459,7 +460,10 @@ final class HomeApps {
                 intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));
                 break;
             case AERIAL:
-                intent = new Intent().setComponent(new ComponentName("com.neilturner.aerialviews", "com.neilturner.aerialviews.ui.screensaver.TestActivity"));
+                // The screensaver the system uses: the AerialViews+ fork when installed, else the original Aerial Views.
+                intent = new Intent().setComponent(new ComponentName("com.hectorx24.aerialviewsplus", "com.neilturner.aerialviews.ui.screensaver.TestActivity"));
+                if (a.getPackageManager().resolveActivity(intent, 0) == null)
+                    intent = new Intent().setComponent(new ComponentName("com.neilturner.aerialviews", "com.neilturner.aerialviews.ui.screensaver.TestActivity"));
                 break;
             case ANDROID_SETTINGS:
                 // Fire OS: ACTION_SETTINGS lands on a CTS dummy handler that does nothing; the real Settings is the
