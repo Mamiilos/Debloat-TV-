@@ -135,3 +135,10 @@ Original project: simbasjungles/free-my-tv and contributors (MIT, see [LICENSE](
 (`app/assets/fonts/OFL.txt`). Weather: Open-Meteo; picks: TMDB (this product uses the TMDB API but is not endorsed or
 certified by TMDB); photos: Bing's daily images; video thumbnails: YouTube. App logos are trademarks of their owners
 and are shown only to identify the installed apps.
+
+## Later changes
+- Top button renamed **Modo ambiente** (same function). Fire OS power: `screen_off_timeout` starts the screensaver, `sleep_timeout` (95 min) sleeps the device and Fire OS sends HDMI-CEC standby; `RESTORE_POWER.sh` restores the originals.
+- Wallpapers: Bing pool from 12 markets (idx 0 and 8), refreshed every 24 h, persistent history of 400 seen images, no repeats until the pool is used up.
+- Recommendations: 2 trending pages + 3 discover pages per kind (~200 titles), 3 picks per hour chosen at random (Netflix/HBO Max/Disney+/ViX 3x, Prime one hour in four), kept across restarts, never repeated until the list is exhausted.
+- `Adb.connect()` throws a clear `IOException` on Fire OS instead of touching Amazon components.
+- Screensaver alternative (separate GPLv3 project): https://github.com/hectorx24/aerialviews-plus-fireos6
