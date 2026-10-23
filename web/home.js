@@ -2,7 +2,8 @@
  * The home screen for web-app TVs (LG webOS, Samsung Tizen), with the Android app's design and behavior (HomeView):
  *  - top: the "For You" title and the tabs (Explore, Movies, Shows); icon-only glass buttons at the right (Live TV,
  *    HDMI Inputs, Settings) and the crypto quotes at the end of the tab row;
- *  - three picks for this hour in the selected tab; the background is the first one's photo, blurred and almost white;
+ *  - three picks for this hour in the selected tab, moving one card to the left every few seconds, so each gets the big
+ *    one; the background is the first one's photo, blurred and almost white;
  *  - the glass shelf with the apps; ↓ opens the drawer (inputs, shortcuts, weather, prices); ↑ or Back closes it;
  *  - a night look from sunset to sunrise; a screensaver after a few idle minutes.
  * The remote's arrows, OK and Back move the focus; a pointer (LG's Magic Remote) focuses what it points at.
@@ -269,7 +270,7 @@
   // MARK: - Focus
 
   var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, first: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0};
   var cards = [];
 
   function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG; }
@@ -284,7 +285,7 @@
     list = $('buttons').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
     setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
-    list = $('cards').children;
+    list = cardNodes();
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
     list = $('tiles').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.SHELF && st.shelf === i);
@@ -362,30 +363,93 @@
 
   // MARK: - Picks and background
 
-  function renderCards() {
-    var list = Data.picks(TAB_KIND[st.tab]);
+  function cardNodes() { return $('cards').children; }
+
+  /** dir: 1 or -1 moves every pick one card to the left or the right; without it, the cards just change. */
+  function renderCards(dir) {
+    var kind = TAB_KIND[st.tab], n = Data.count(kind);
+    st.first = n ? (st.first % n + n) % n : 0;
+    var list = Data.picks(kind, st.first);
     var holder = $('cards');
     setClass(body, 'no-picks', !list.length);
     var same = list.length === cards.length;
     for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta;
-    if (same && holder.children.length === list.length) return;
+    if (same && cardNodes().length === list.length) return;
     cards = list;
+    var olds = [];
+    for (var o = 0; dir && o < holder.children.length; o++) olds.push(holder.children[o]);
     holder.innerHTML = '';
     var rects = [[80, 1040], [1160, 320], [1520, 320]];
     for (var c = 0; c < list.length; c++) {
       var p = list[c], card = el('div', 'card', holder);
       card.style.left = rects[c][0] + 'px';
       card.style.width = rects[c][1] + 'px';
-      var img = el('div', 'img', card);
-      img.style.backgroundImage = 'url(' + Data.image(p.backdrop, c === 0 ? 'w1280' : 'w780') + ')';
+      var pic = el('div', 'pic', el('div', 'img', card));
+      pic.style.backgroundImage = 'url(' + Data.image(p.backdrop, c === 0 ? 'w1280' : 'w780') + ')';
       el('div', 'name', card, p.title);
       if (c === 0 && p.meta) el('div', 'meta', card, p.meta);
       hover(card, Z.CARDS, c);
+      if (olds[c]) slideIn(card, olds[c], dir, c);
+    }
+    // The next one's big photo and the one after's small one, so neither slides in empty.
+    if (n > 3) {
+      new Image().src = Data.image(list[1].backdrop, 'w1280');
+      var after = Data.picks(kind, st.first + 1)[2];
+      if (after) new Image().src = Data.image(after.backdrop, 'w780');
     }
     st.card = Math.min(st.card, Math.max(0, list.length - 1));
     if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
     backdrop(list.length ? Data.image(list[0].backdrop, 'w300') : '');
     updateFocus();
+  }
+
+  var SLIDE_EVERY = 8000, SLIDE_TIME = 700, slideTimer = 0;
+
+  function shift(node, percent) {
+    node.style.webkitTransform = node.style.transform = percent ? 'translateX(' + percent + '%)' : 'none';
+  }
+
+  /**
+   * The cards stay put (their sizes differ, and only transform animates on older TVs): in each one, the photo that was
+   * there slides out as the new one slides in, a beat after the card to its left, and the names cross-fade.
+   */
+  function slideIn(card, old, dir, c) {
+    var img = card.firstChild, pic = img.firstChild, was = old.firstChild.firstChild;
+    img.appendChild(was);
+    shift(pic, dir * 100);
+    var texts = card.querySelectorAll('.name, .meta'), stale = old.querySelectorAll('.name, .meta'), i;
+    for (i = 0; i < texts.length; i++) setClass(texts[i], 'fresh', true);
+    for (i = 0; i < stale.length; i++) card.appendChild(stale[i]);
+    void card.offsetWidth;   // from where it starts, not from where it ends
+    pic.style.webkitTransitionDelay = was.style.webkitTransitionDelay = pic.style.transitionDelay = was.style.transitionDelay = (dir > 0 ? c : 2 - c) * 70 + 'ms';
+    setClass(pic, 'moving', true);
+    setClass(was, 'moving', true);
+    shift(pic, 0);
+    shift(was, -dir * 100);
+    for (i = 0; i < texts.length; i++) setClass(texts[i], 'fresh', false);
+    for (i = 0; i < stale.length; i++) setClass(stale[i], 'stale', true);
+    setTimeout(function () {
+      if (was.parentNode) was.parentNode.removeChild(was);
+      for (var j = 0; j < stale.length; j++) if (stale[j].parentNode) stale[j].parentNode.removeChild(stale[j]);
+    }, SLIDE_TIME + 250);
+  }
+
+  /** Every pick one card to the left (1) or the right (-1); false when the tab has nothing past its three cards. */
+  function slide(dir) {
+    scheduleSlide();
+    if (Data.count(TAB_KIND[st.tab]) <= 3) return false;
+    st.first += dir;
+    renderCards(dir);
+    return true;
+  }
+
+  /** Every few seconds, unless the cards have the focus (nothing moves under it) or something covers them. */
+  function scheduleSlide() {
+    clearTimeout(slideTimer);
+    slideTimer = setTimeout(function () {
+      if (st.zone === Z.CARDS || st.zone === Z.DRAWER || sheetOpen() || saverOn || document.hidden) scheduleSlide();
+      else slide(1);
+    }, SLIDE_EVERY);
   }
 
   var bgUrl = null, bgFront = 'bgA';
@@ -413,9 +477,19 @@
   }
 
   function renderClock() {
-    var d = new Date(), c = $('clock');
-    c.firstChild.textContent = formatDate('format|h:mm', d.getTime());
-    c.lastChild.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
+    var at = Date.now(), time = formatDate('format|h:mm', at), date = formatDate('format|EEEE, MMMM d', at);
+    var ids = ['clock', 'now'];
+    for (var i = 0; i < ids.length; i++) {
+      var c = $(ids[i]);
+      c.firstChild.textContent = time;
+      c.lastChild.textContent = date;
+    }
+  }
+
+  /** On the minute, so the clock at the top never runs late (the 30-second refresh below could, by up to 30 s). */
+  function tickClock() {
+    renderClock();
+    setTimeout(tickClock, 60000 - Date.now() % 60000 + 50);
   }
 
   // MARK: - Shelf
@@ -836,24 +910,31 @@
   function selectTab(i) {
     if (i === st.tab) return;
     st.tab = i;
+    st.first = 0;
     renderCards();
+    scheduleSlide();
   }
 
   function move(dx, dy) {
-    var tiles = $('tiles').children, cardNodes = $('cards').children;
+    var tiles = $('tiles').children, cardList = cardNodes();
     switch (st.zone) {
       case Z.SHELF:
         if (dx) st.shelf = Math.max(0, Math.min(shelf.length - 1, st.shelf + dx));
         else if (dy > 0) { openDrawer(); return; }
         else if (dy < 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
+          if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardList, centerX(tiles[st.shelf])); }
           else { st.zone = Z.TOP; st.top = st.tab; }
         }
         break;
       case Z.CARDS:
-        if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
+        if (dx) {
+          // Past the first or the last card, the picks move one card instead (the focus stays at the edge).
+          var to = st.card + dx;
+          if (to < 0 || to >= cards.length) slide(dx);
+          else st.card = to;
+        }
         else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
-        else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
+        else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardList[st.card])); }
         break;
       case Z.TOP:
         if (dx) {
@@ -1048,7 +1129,8 @@
     closeSheets();
     st.zone = Z.SHELF;
     st.shelf = 0;
-    if (st.tab !== 0) { st.tab = 0; renderCards(); }
+    if (st.tab !== 0 || st.first !== 0) { st.tab = 0; st.first = 0; renderCards(); }
+    scheduleSlide();
     updateFocus();
   }
 
@@ -1076,8 +1158,11 @@
   });
 
   I18N.set(Prefs.language());
+  TV.holdScreenSaver();
   fit();
   renderTop();
+  tickClock();
+  scheduleSlide();
   loadApps(function () {
     renderAll();
     Data.refresh();

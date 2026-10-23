@@ -85,6 +85,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .drawer-open #top { opacity: 0; }
 #drawer { -webkit-transform: translateY(560px); transform: translateY(560px); opacity: 0; }
 .drawer-open #drawer { -webkit-transform: none; transform: none; opacity: 1; }
+/* Closed, it still spans the screen below the shelf: only its keys take the pointer, and only when it's open. */
+#drawer { pointer-events: none; }
+.drawer-open #drawer .key { pointer-events: auto; }
 
 /* MARK: - Title and tabs */
 
@@ -149,6 +152,24 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #quotes.hide { opacity: 0; }
 .night #quotes { color: rgba(245, 245, 247, 0.62); }
 .night #quotes svg { fill: rgba(245, 245, 247, 0.55); }
+
+/* The time and date, always up at the left of the round buttons (the big clock takes over without picks). */
+#now {
+  position: absolute;
+  right: 360px;
+  top: 67px;
+  text-align: right;
+  white-space: nowrap;
+  color: #1D1D1F;
+  font-feature-settings: 'tnum';
+  -webkit-transition: color 2s;
+  transition: color 2s;
+}
+#now .time { display: block; font-size: 46px; font-weight: 300; line-height: 46px; letter-spacing: -0.01em; }
+#now .date { display: block; margin-top: 2px; font-size: 21px; font-weight: 500; line-height: 24px; color: #6E6E73; }
+.no-picks #now { display: none; }
+.night #now { color: #F5F5F7; }
+.night #now .date { color: rgba(245, 245, 247, 0.62); }
 
 /* Live TV, HDMI Inputs and Settings: glass circles; the focused one turns white, with its name below. */
 .round {
@@ -260,6 +281,18 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   font-weight: 500;
   color: #6E6E73;
 }
+/* The photo inside the card, so a new one can slide in through it while the last one slides out (home.js slideIn). */
+.card .pic { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background-size: cover; background-position: center; }
+.card .pic.moving {
+  -webkit-transition: -webkit-transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card .name, .card .meta {
+  -webkit-transition: color 2s, opacity 0.35s 0.3s;
+  transition: color 2s, opacity 0.35s 0.3s;
+}
+.card .fresh { opacity: 0; -webkit-transition: none; transition: none; }
+.card .stale { opacity: 0; -webkit-transition: opacity 0.2s; transition: opacity 0.2s; }
 .night .card .img { background-color: #2C2C2E; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32); }
 .night .card .name { color: #F5F5F7; }
 .night .card .meta { color: rgba(245, 245, 247, 0.62); }

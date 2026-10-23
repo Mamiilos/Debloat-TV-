@@ -282,8 +282,10 @@ var Data = (function () {
     return (cut > 0 ? t.slice(0, cut) : t).replace(/^\s+|\s+$/g, '');
   }
 
-  /** This hour's 3 picks: movies ("movie"), shows ("tv") or both (null). */
-  function now(kind) {
+  var SLIDES = 12;
+
+  /** This hour's picks, in the order the cards show them: movies ("movie"), shows ("tv") or both (null). */
+  function rotation(kind) {
     var list = [];
     if (!KEY) return list;
     for (var i = 0; i < picks.length; i++) {
@@ -292,10 +294,24 @@ var Data = (function () {
     }
     if (!list.length) return list;
     var hour = Math.floor(Date.now() / 3600000), out = [], seen = {};
-    for (var j = 0; j < list.length && out.length < 3; j++) {
+    for (var j = 0; j < list.length && out.length < SLIDES; j++) {
       var q = list[(hour * 3 + j) % list.length], f = franchise(q.title);
       if (!seen[f]) { seen[f] = true; out.push(q); }
     }
+    return out;
+  }
+
+  /** How many the cards go through: the first 3 as they are, then only picks known to be on the TV's apps. */
+  function usable(list) {
+    var n = Math.min(3, list.length);
+    while (n < list.length && list[n].detailed) n++;
+    return n;
+  }
+
+  /** The 3 picks on the cards, from the one at `first` on the big card (the slider moves it one at a time). */
+  function now(kind, first) {
+    var list = rotation(kind), n = usable(list), out = [];
+    for (var i = 0; i < Math.min(3, n); i++) out.push(list[((first || 0) + i) % n]);
     return out;
   }
 
@@ -491,11 +507,11 @@ var Data = (function () {
     }
   }
 
-  /** This hour's picks for the three tabs, without repeats (the screensaver shows them too). */
+  /** This hour's picks for the three tabs, every page, without repeats (the screensaver shows them too). */
   function all() {
     var out = [], seen = {}, kinds = [null, 'movie', 'tv'];
     for (var k = 0; k < kinds.length; k++) {
-      var list = now(kinds[k]);
+      var list = rotation(kinds[k]);
       for (var i = 0; i < list.length; i++) if (!seen[keyOf(list[i])]) { seen[keyOf(list[i])] = true; out.push(list[i]); }
     }
     return out;
@@ -527,6 +543,7 @@ var Data = (function () {
     hasKey: function () { return !!KEY; },
     recsError: function () { return recsError; },
     picks: now,
+    count: function (kind) { return usable(rotation(kind)); },
     showcase: all,
     image: function (path, size) { return path ? 'https://image.tmdb.org/t/p/' + (size || 'w1280') + path : ''; },
 
