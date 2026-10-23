@@ -1,6 +1,8 @@
 package io.freemytv;
 
 import android.content.Context;
+import android.os.Build;
+import android.os.SystemClock;
 import android.util.Base64;
 
 import java.io.ByteArrayOutputStream;
@@ -42,6 +44,8 @@ final class Adb implements Closeable {
             CLSE = 0x45534c43, WRTE = 0x45545257, STLS = 0x534c5453;
     private static final int VERSION = 0x01000001, MAX_DATA = 256 * 1024;
     private static final int AUTH_TOKEN = 1, AUTH_SIGNATURE = 2, AUTH_RSAPUBLICKEY = 3;
+    /** While the TV shows the prompt, how often a new connection checks whether the key is stored (Android 8 to 10). */
+    private static final int STORED_CHECK_MS = 3000;
     /** Start of the PKCS#1 block of a SHA-1 signature (adbd treats the token as if it were the digest). */
     private static final byte[] SHA1_PREFIX = {0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14};
 
@@ -85,11 +89,24 @@ final class Adb implements Closeable {
         try {
             adb.send(CNXN, VERSION, MAX_DATA, "host::\0".getBytes(StandardCharsets.US_ASCII));
             boolean signed = false, offeredKey = false;
+            // Before Android 11, adbd sends the answer to the prompt to the first connection that asked for one and is
+            // still open, the computer's if `adb connect` is: this one would wait for an answer that never comes.
+            boolean checkStored = Build.VERSION.SDK_INT < 30;
+            long giveUp = 0;
             while (true) {
                 Message m;
                 try {
                     m = adb.read();
                 } catch (SocketTimeoutException e) {
+                    if (checkStored && offeredKey && SystemClock.uptimeMillis() < giveUp) {
+                        // Accepted with "Always allow", the key is stored and a new connection gets in by signing.
+                        Adb stored = connectStored(keys);
+                        if (stored != null) {
+                            adb.close();
+                            return stored;
+                        }
+                        continue;
+                    }
                     throw new IOException(offeredKey ? Ui.tr("debugging permission wasn't accepted on the TV") : Ui.tr("the TV's ADB didn't respond"));
                 }
                 if (m.command == CNXN) {
@@ -106,7 +123,8 @@ final class Adb implements Closeable {
                     adb.send(AUTH, AUTH_RSAPUBLICKEY, 0, publicKeyBlob(keys.getPublic()));
                     offeredKey = true;
                     if (approval != null) approval.waiting();
-                    s.setSoTimeout(approvalMs);
+                    giveUp = SystemClock.uptimeMillis() + approvalMs;
+                    s.setSoTimeout(checkStored ? Math.min(approvalMs, STORED_CHECK_MS) : approvalMs);
                 } else {
                     throw new IOException(Ui.tr("the TV rejected the app's key"));
                 }
@@ -115,6 +133,30 @@ final class Adb implements Closeable {
             adb.close();
             throw e;
         }
+    }
+
+    /** A new connection that only signs (never offers the key): in if the TV has stored our key, else null. */
+    private static Adb connectStored(KeyPair keys) {
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress("127.0.0.1", 5555), 3000);
+            s.setSoTimeout(3000);
+            Adb adb = new Adb(s);
+            adb.send(CNXN, VERSION, MAX_DATA, "host::\0".getBytes(StandardCharsets.US_ASCII));
+            Message m = adb.read();
+            if (m.command == AUTH && m.arg0 == AUTH_TOKEN) {
+                adb.send(AUTH, AUTH_SIGNATURE, 0, sign(keys.getPrivate(), m.data));
+                m = adb.read();
+            }
+            if (m.command == CNXN) {
+                s.setSoTimeout(20_000);
+                return adb;
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // Not yet (or the TV is busy): the caller keeps waiting on its own connection and asks again.
+        }
+        try { s.close(); } catch (IOException ignored) {}
+        return null;
     }
 
     /** Runs a command in the TV's shell and returns its output (stdout and stderr together). */
