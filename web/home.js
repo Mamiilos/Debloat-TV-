@@ -1067,7 +1067,10 @@
   // MARK: - Night, clock, screensaver
 
   function checkNight() {
-    setClass(body, 'night', Data.isNight(Date.now()));
+    var night = Data.isNight(Date.now());
+    setClass(body, 'night', night);
+    document.documentElement.style.background = night ? '#0B0B0D' : '';
+    try { localStorage.setItem('fmtv.night', JSON.stringify(night)); } catch (e) {}   // for index.html, next start
   }
 
   var saverOn = false, idleAt = Date.now(), saverIndex = 0, saverTimer = 0, SAVER_AFTER = 5 * 60000;
@@ -1209,6 +1212,7 @@
 
   I18N.set(Prefs.language());
   TV.holdScreenSaver();
+  checkNight();   // now, from the last forecast: not after the TV lists its apps, with the day look until then
   fit();
   renderTop();
   tickClock();
