@@ -61,7 +61,7 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 4;
+    private static final int CACHE_VERSION = 5;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -202,27 +202,52 @@ final class Recs {
                     && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
         }
         if (list.isEmpty()) return list;
-        // Prime Video picks are rare (one hour in four): a service the owner doesn't subscribe to shouldn't lead the home screen.
-        long hourNow = System.currentTimeMillis() / 3600_000L;
-        if (hourNow % 4 != 0) {
-            List<Pick> noPrime = new ArrayList<>();
-            for (Pick p : list) if (!"prime".equals(p.app)) noPrime.add(p);
-            if (!noPrime.isEmpty()) list = noPrime;
-        }
-        List<Pick> weighted = new ArrayList<>(list);
-        for (Pick p : list) if ("netflix".equals(p.app)||"max".equals(p.app)||"disney".equals(p.app)||"vix".equals(p.app)) {
-            weighted.add(p); weighted.add(p);
-        }
-        list=weighted;
+        // Three per hour, kept for the whole hour (and across restarts), never shown again until the whole list has
+        // been shown; random, with Netflix, HBO Max, Disney+ and ViX three times as likely, Prime Video one hour in four.
         long hour = System.currentTimeMillis() / 3600_000L;
-        // Three per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
-        List<Pick> out = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        for (int i = 0; i < list.size() && out.size() < 3; i++) {
-            Pick p = list.get((int) ((hour * 3 + i) % list.size()));
-            if (seen.add(franchise(p.title))) out.add(p);
+        String slot = kind == null ? "all" : kind;
+        Map<String, Pick> byKey = new HashMap<>();
+        for (Pick p : list) byKey.put(key(p), p);
+        String[] saved = cache.getString("sel:" + slot, "").split("\\|");
+        if (saved.length == 4 && saved[0].equals(String.valueOf(hour))) {
+            List<Pick> kept = new ArrayList<>();
+            for (int i = 1; i < 4; i++) if (byKey.containsKey(saved[i])) kept.add(byKey.get(saved[i]));
+            if (kept.size() == 3) return kept;
         }
+        java.util.Set<String> shown = new java.util.HashSet<>(cache.getStringSet("shown:" + slot, new java.util.HashSet<String>()));
+        List<Pick> fresh = new ArrayList<>();
+        for (Pick p : list) if (!shown.contains(key(p)) && !("prime".equals(p.app) && hour % 4 != 0)) fresh.add(p);
+        if (fresh.size() < 3) {
+            shown.clear();
+            for (Pick p : list) if (!("prime".equals(p.app) && hour % 4 != 0)) fresh.add(p);
+            if (fresh.size() < 3) fresh = new ArrayList<>(list);
+        }
+        java.util.Random random = new java.util.Random(hour * 31 + slot.hashCode());
+        List<Pick> out = new ArrayList<>();
+        java.util.Set<String> franchises = new java.util.HashSet<>();
+        while (out.size() < 3 && !fresh.isEmpty()) {
+            double total = 0;
+            for (Pick p : fresh) total += weight(p);
+            double at = random.nextDouble() * total;
+            Pick chosen = fresh.get(fresh.size() - 1);
+            for (Pick p : fresh) {
+                at -= weight(p);
+                if (at <= 0) { chosen = p; break; }
+            }
+            fresh.remove(chosen);
+            if (franchises.add(franchise(chosen.title))) out.add(chosen);
+        }
+        StringBuilder sel = new StringBuilder(String.valueOf(hour));
+        for (Pick p : out) {
+            sel.append('|').append(key(p));
+            shown.add(key(p));
+        }
+        cache.edit().putString("sel:" + slot, sel.toString()).putStringSet("shown:" + slot, shown).apply();
         return out;
+    }
+
+    private static double weight(Pick p) {
+        return "netflix".equals(p.app) || "max".equals(p.app) || "disney".equals(p.app) || "vix".equals(p.app) ? 3 : 1;
     }
 
     /** "Law & Order: Special Victims Unit" → "law & order" (what comes before ":" or " - "). */
@@ -424,9 +449,11 @@ final class Recs {
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
         for (String kind : new String[] {"movie", "tv"}) {
-            JSONArray hot = get("/trending/" + kind + "/week?language=" + lang()).getJSONArray("results");
             List<Pick> candidates = new ArrayList<>();
-            for (int i = 0; i < hot.length() && i < 20; i++) add(candidates, hot.getJSONObject(i), kind);
+            for (int page = 1; page <= 2; page++) {   // two pages of trending: 40 titles, not 20
+                JSONArray hot = get("/trending/" + kind + "/week?language=" + lang() + "&page=" + page).getJSONArray("results");
+                for (int i = 0; i < hot.length(); i++) add(candidates, hot.getJSONObject(i), kind);
+            }
             for (Pick pick : candidates) {
                 try {
                     fetchDetails(pick);
@@ -438,18 +465,20 @@ final class Recs {
         }
         // 2. Recent releases on the TV's services: movies from the past year and shows with a new episode in the
         //    past 3 months.
-        JSONArray movies = get("/discover/movie?vote_count.gte=30&primary_release_date.gte=" + day(-365)
-                + "&primary_release_date.lte=" + day(0) + common).getJSONArray("results");
-        JSONArray shows = get("/discover/tv?vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0)
-                + common).getJSONArray("results");
         List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
-        for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
-        for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
+        for (int page = 1; page <= 3; page++) {   // three pages of each: 60 titles, not 20
+            JSONArray movies = get("/discover/movie?vote_count.gte=30&primary_release_date.gte=" + day(-365)
+                    + "&primary_release_date.lte=" + day(0) + common + "&page=" + page).getJSONArray("results");
+            JSONArray shows = get("/discover/tv?vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0)
+                    + common + "&page=" + page).getJSONArray("results");
+            for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
+            for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
+        }
         // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
         List<Pick> list = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        alternate(list, seen, hotMovies, hotShows, 24);
-        alternate(list, seen, newMovies, newShows, 24);
+        alternate(list, seen, hotMovies, hotShows, 60);
+        alternate(list, seen, newMovies, newShows, 140);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         picks = list;
         period = p;
