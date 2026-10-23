@@ -76,7 +76,7 @@
     ['jellyfin', /jellyfin/i, /jellyfin/i, ['#AA5CC3', '#00A4DC']],
     ['spotify', /spotify/, /spotify/i, ['#1DB954', '#0F7A36']]
   ];
-  var MAX_SHELF = 8;
+  var MAX_SHELF = 10;
 
   function shelfKey(app) {
     for (var i = 0; i < SHELF.length; i++) if (SHELF[i][1].test(app.id) || SHELF[i][2].test(app.title)) return SHELF[i];
@@ -134,11 +134,12 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang',
+    TIMER: 'timer'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, timer: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.TIMER; }
 
   function updateFocus() {
     var i, list;
@@ -163,6 +164,7 @@
     focusRows($('settings'), st.row, st.zone === Z.SETTINGS);
     focusRows($('shelfedit'), st.edit, st.zone === Z.EDIT);
     focusRows($('langpick'), st.lang, st.zone === Z.LANG);
+    focusRows($('timer'), st.timer, st.zone === Z.TIMER);
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     setClass(body, 'drawer-open', st.zone === Z.DRAWER);
   }
@@ -325,6 +327,7 @@
       drawerItems.push({label: x.label || tr('Live TV'), symbol: x.symbol, off: !x.connected, run: launcher(x.id, x.label)});
     }
     drawerInputs = drawerItems.length;
+    drawerItems.push({label: sleepAt ? sleepMinutes() + ' min' : tr('Timer'), symbol: 'bedtime', run: openTimer});
     drawerItems.push({label: tr('All Apps'), symbol: 'apps', run: openApps});
     drawerItems.push({label: tr('Home Settings'), symbol: 'settings', run: openSettings});
     drawerItems.push({label: tr('TV Settings'), symbol: 'tv_settings', run: tvSettings});
@@ -383,6 +386,15 @@
     sym(Data.symbol(w.code, w.isDay), now);
     el('span', 'temp', now, Data.degrees(w.temp));
     el('div', 'cond', card, Data.condition(w.code, w.isDay));
+    var extra = [];
+    if (w.rain) {
+      if (w.rain.inMin !== null) extra.push(trf('Rain in ~{n} min', {n: Math.max(5, Math.round(w.rain.inMin / 5) * 5)}));
+      else extra.push(tr('No rain in the next 2 hours'));
+    }
+    if (w.uv >= 3) extra.push('UV ' + Math.round(w.uv));
+    var air = Data.air;
+    if (air && air.aqi !== null && air.aqi !== undefined) extra.push('AQI ' + Math.round(air.aqi));
+    if (extra.length) el('div', 'extra', card, extra.join(' · '));
     el('div', 'range', card, trf('H:{max}', {max: Data.degrees(w.max)}) + '   ' + trf('L:{min}', {min: Data.degrees(w.min)}));
     el('div', 'split', card);
     var hours = el('div', 'hours', card), width = parseFloat(card.style.width) - 30 - 422, hw = width / 6;
@@ -489,6 +501,12 @@
           step: function () { if (Prefs.quotes()) { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); } }});
       })(i);
     }
+    rows.push({label: tr('Sleep timer'), value: sleepAt ? sleepMinutes() + ' min' : tr('Off'), opens: true,
+      step: function (d) { if (d >= 0) openTimer(); }});
+    rows.push({label: tr('Dim'), value: dimName(Prefs.get('dim', 'auto')), opens: true,
+      step: function (d) { cycle('dim', ['off', 'low', 'medium', 'high', 'auto'], Prefs.get('dim', 'auto'), d); applyDim(); }});
+    rows.push({label: tr('Screensaver'), value: saverMode() === 'photos' ? tr('Photos') : tr('Clock'), opens: true,
+      step: function (d) { cycle('saver', ['clock', 'photos'], saverMode(), d); }});
     rows.push({label: tr('Shelf'), value: '›', step: function (d) { if (d >= 0) openShelfEdit(); }});
     rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
     return rows;
@@ -696,6 +714,9 @@
       case Z.LANG:
         closeLanguages(true);
         return;
+      case Z.TIMER:
+        if (rowsTimer[st.timer]) { rowsTimer[st.timer].step(); if (st.zone === Z.TIMER) renderTimer(); }
+        return;
     }
   }
 
@@ -752,6 +773,9 @@
       case Z.LANG:
         if (dy) st.lang = Math.max(0, Math.min(languageChoices().length - 1, st.lang + dy));
         break;
+      case Z.TIMER:
+        if (dy) st.timer = Math.max(0, Math.min(rowsTimer.length - 1, st.timer + dy));
+        break;
     }
     updateFocus();
   }
@@ -759,6 +783,7 @@
   function back() {
     if (st.zone === Z.EDIT) { setClass($('shelfedit'), 'open', false); openSettings(); st.row = rowsNow.length - 2; updateFocus(); return; }
     if (st.zone === Z.LANG) { closeLanguages(false); return; }
+    if (st.zone === Z.TIMER) { closeSheets(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
@@ -768,7 +793,7 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG))) return;
+      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.TIMER))) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
@@ -781,6 +806,7 @@
       else if (zone === Z.SETTINGS) st.row = index;
       else if (zone === Z.EDIT) st.edit = index;
       else if (zone === Z.LANG) st.lang = index;
+      else if (zone === Z.TIMER) st.timer = index;
       updateFocus();
     };
     node.onclick = function () { node.onmouseover(); activate(); };
@@ -822,7 +848,7 @@
       var p = photos.length ? photos[saverIndex++ % photos.length] : null;
       var back = front === a ? b : a;
       if (p) {
-        back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'original') + ')';
+        back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'w1280') + ')';
         back.style.webkitTransform = back.style.transform = 'scale(1.0)';
         clock.lastChild.textContent = p.title;
         setTimeout(function () {
@@ -851,8 +877,176 @@
     setClass($('saver'), 'on', false);
   }
 
+  // MARK: - Dim, screen off and the sleep timer
+
+  /** off | low | medium | high | auto: a black layer over the interface, for a dark room. */
+  function dimName(v) {
+    return v === 'low' ? tr('Low') : v === 'medium' ? tr('Medium') : v === 'high' ? tr('High')
+      : v === 'auto' ? tr('Automatic') : tr('Off');
+  }
+
+  function dimLevel() {
+    var v = Prefs.get('dim', 'auto');
+    if (v === 'auto') { var h = new Date().getHours(); return h >= 22 || h < 7 ? 2 : 0; }
+    return v === 'low' ? 1 : v === 'medium' ? 2 : v === 'high' ? 3 : 0;
+  }
+
+  function applyDim() {
+    var level = dimLevel();
+    $('dim').className = 'layer' + (level ? ' d' + level : '');
+  }
+
+  var blackOn = false;
+
+  function screenOff() {
+    blackOn = true;
+    setClass($('black'), 'on', true);
+    TV.screenOff(function (ok) {
+      if (!ok && window.PalmSystem) toast(tr('Screen off: any key comes back.'));
+    });
+  }
+
+  function wakeScreen() {
+    if (!blackOn) return false;
+    blackOn = false;
+    setClass($('black'), 'on', false);
+    return true;
+  }
+
+  var SLEEP_KEY = 'fmtv.sleepAt', sleepAt = 0, sleepFive = false;
+  try { sleepAt = parseInt(localStorage.getItem(SLEEP_KEY) || '0', 10) || 0; } catch (e) {}
+  if (sleepAt && sleepAt < Date.now()) sleepAt = 0;   // it ended while the TV was off
+
+  function saveSleep() {
+    try {
+      if (sleepAt) localStorage.setItem(SLEEP_KEY, String(sleepAt));
+      else localStorage.removeItem(SLEEP_KEY);
+    } catch (e) {}
+  }
+
+  function sleepMinutes() { return sleepAt ? Math.max(0, Math.ceil((sleepAt - Date.now()) / 60000)) : 0; }
+
+  function setSleep(minutes) {
+    sleepAt = Date.now() + minutes * 60000;
+    sleepFive = false;
+    saveSleep();
+    toast(trf('Turning off in {n} min', {n: minutes}));
+    renderTimer();
+    renderDrawer();
+  }
+
+  function cancelSleep() {
+    sleepAt = 0;
+    saveSleep();
+    toast(tr('Timer cancelled'));
+    renderTimer();
+    renderDrawer();
+  }
+
+  function turnOffNow() {
+    TV.powerOff(function (ok) {
+      if (!ok) {
+        screenOff();
+        toast(tr("Couldn't turn the TV off. Hold the power key."));
+      }
+    });
+  }
+
+  function tickSleep() {
+    if (!sleepAt) return;
+    var left = sleepAt - Date.now();
+    if (left <= 0) { sleepAt = 0; saveSleep(); turnOffNow(); return; }
+    if (left <= 5 * 60000 && !sleepFive) { sleepFive = true; toast(trf('Turning off in {n} min', {n: 5})); }
+  }
+
+  var rowsTimer = [];
+
+  function timerRows() {
+    var rows = [], opts = [15, 30, 60, 90], i;
+    for (i = 0; i < opts.length; i++) {
+      (function (n) {
+        rows.push({label: trf('Turn off in {n} min', {n: n}),
+          step: function () { setSleep(n); closeSheets(); }});
+      })(opts[i]);
+    }
+    rows.push({label: tr('Screen off'), value: tr('Now'), step: function () { closeSheets(); screenOff(); }});
+    if (sleepAt) rows.push({label: tr('Cancel timer'), value: sleepMinutes() + ' min', step: function () { cancelSleep(); }});
+    rows.push({label: tr('Turn the TV off'), step: function () { closeSheets(); turnOffNow(); }});
+    return rows;
+  }
+
+  function renderTimer() {
+    var box = $('timer').firstChild;
+    if (!box) return;
+    box.innerHTML = '';
+    el('div', 'title', box, tr('Sleep timer'));
+    el('div', 'hint', box, sleepAt ? trf('Turning off in {n} min', {n: sleepMinutes()})
+      : tr('The TV turns off when the timer ends.'));
+    rowsTimer = timerRows();
+    var list = el('div', 'list', box), holder = el('div', 'rows', list);
+    list.style.height = Math.min(rowsTimer.length, 7) * 78 + 'px';
+    for (var i = 0; i < rowsTimer.length; i++) {
+      var r = rowsTimer[i], row = el('div', 'row', holder, r.label);
+      if (r.value) el('span', 'value', row, r.value);
+      hover(row, Z.TIMER, i);
+    }
+    if (st.zone === Z.TIMER) updateFocus();
+  }
+
+  function openTimer() {
+    st.zone = Z.TIMER;
+    st.timer = 0;
+    renderTimer();
+    setClass($('settings'), 'open', false);
+    setClass($('timer'), 'open', true);
+    updateFocus();
+  }
+
+  // MARK: - Ambient: the clock on its own, when the room is quiet
+
+  var ambientOn = false, ambientTimer = 0;
+
+  /** "clock" (the default here) or "photos": what the screen shows when nobody touches it. */
+  function saverMode() { return Prefs.get('saver', 'clock'); }
+
+  function showAmbient() {
+    var a = $('ambient');
+    a.innerHTML = '';
+    var shift = el('div', 'shift', a);
+    el('div', 'clock', shift, formatDate('format|h:mm', Date.now()));
+    el('div', 'date', shift, formatDate('format|EEEE, MMMM d', Date.now()));
+    var side = el('div', 'side', shift), w = Data.weather;
+    el('div', 'temp', side, w ? Data.degrees(w.temp) : '—');
+    if (w) el('div', 'cond', side, Data.condition(w.code, w.isDay));
+    ambientOn = true;
+    setClass(a, 'on', true);
+    ambientTimer = setInterval(tickAmbient, 30000);
+    tickAmbient();
+  }
+
+  function tickAmbient() {
+    if (!ambientOn) return;
+    var a = $('ambient'), clock = a.querySelector('.clock'), shift = a.querySelector('.shift'), d = new Date();
+    if (clock) clock.textContent = formatDate('format|h:mm', d.getTime());
+    var date = a.querySelector('.date');
+    if (date) date.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
+    if (shift) {
+      // A few pixels every half minute: a static clock on an OLED is what burns in.
+      var dx = Math.round(Math.sin(d.getMinutes() * 0.7) * 6), dy = Math.round(Math.cos(d.getMinutes() * 0.9) * 5);
+      shift.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    }
+  }
+
+  function hideAmbient() {
+    ambientOn = false;
+    clearInterval(ambientTimer);
+    setClass($('ambient'), 'on', false);
+  }
+
   function poke() {
     idleAt = Date.now();
+    if (wakeScreen()) return true;
+    if (ambientOn) { hideAmbient(); return true; }
     if (saverOn) { hideSaver(); return true; }
     return false;
   }
@@ -944,6 +1138,7 @@
   I18N.set(Prefs.language());
   fit();
   renderTop();
+  applyDim();
   loadApps(function () {
     renderAll();
     Data.refresh();
@@ -952,10 +1147,16 @@
     renderClock();
     checkNight();
     Data.refresh();
-    if (!saverOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) showSaver();
+    tickSleep();
+    applyDim();
+    if (!blackOn && !saverOn && !ambientOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) {
+      if (saverMode() === 'photos') showSaver(); else showAmbient();
+    }
     if (saverOn) tickSaverClock($('saver').querySelector('.clock'));
+    if (ambientOn) tickAmbient();
   }, 30000);
 
   // For the browser preview and tests.
-  window.FreeMyTV = {state: st, move: move, activate: activate, back: back, showSaver: showSaver, hideSaver: hideSaver, toast: toast};
+  window.FreeMyTV = {state: st, move: move, activate: activate, back: back, showSaver: showSaver, hideSaver: hideSaver, toast: toast,
+    showAmbient: showAmbient, hideAmbient: hideAmbient, applyDim: applyDim};
 })();
