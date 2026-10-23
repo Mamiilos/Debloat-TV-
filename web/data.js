@@ -50,6 +50,7 @@ var Prefs = (function () {
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
     shelf: function () { return pick('shelf', null); },
+    get: function (name, fallback) { return pick(name, fallback); },
     set: function (name, value) { v[name] = value; save(); this.version++; },
     setCoin: function (i, on) {
       var c = (pick('coins', null) || [true, true, true, true]).slice();
@@ -109,8 +110,23 @@ var Data = (function () {
     var w = {
       temp: o.current.temperature_2m, code: o.current.weather_code, isDay: o.current.is_day !== 0,
       max: o.daily.temperature_2m_max[0], min: o.daily.temperature_2m_min[0],
+      uv: o.daily && o.daily.uv_index_max ? o.daily.uv_index_max[0] : 0,
       sunrise: localTime(o.daily.sunrise[0], off), sunset: localTime(o.daily.sunset[0], off), hours: []
     };
+    // The next two hours in 15-minute steps: enough to say "rain in ~40 min" without a second request.
+    var mr = o.minutely_15;
+    if (mr && mr.time) {
+      w.rain = {inMin: null, prob: 0, mm: 0};
+      for (var k = 0; k < mr.time.length; k++) {
+        var when = localTime(mr.time[k], off);
+        if (when < now - 7 * 60000) continue;
+        var pr = mr.precipitation_probability ? mr.precipitation_probability[k] || 0 : 0;
+        var mm = mr.precipitation ? mr.precipitation[k] || 0 : 0;
+        if (pr > w.rain.prob) w.rain.prob = pr;
+        if (mm > w.rain.mm) w.rain.mm = mm;
+        if (w.rain.inMin === null && (pr >= 50 || mm >= 0.2)) w.rain.inMin = Math.round((when - now) / 60000);
+      }
+    }
     var hr = o.hourly;
     for (var i = 0; hr && i < hr.time.length && w.hours.length < 6; i++) {
       var at = localTime(hr.time[i], off);
@@ -120,12 +136,34 @@ var Data = (function () {
     return w;
   }
 
+  var air = null, airAt = 0, fetchingAir = false;
+  (function () {
+    var a = stored('air');
+    if (a && a.place === PLACE) { air = a.body; airAt = a.at; }
+  })();
+
+  /** Air quality from Open-Meteo's separate endpoint: AQI and PM2.5, cached for half an hour. */
+  function refreshAir() {
+    if (fetchingAir || (airAt && Date.now() - airAt < 30 * 60000 && Date.now() >= airAt)) return;
+    fetchingAir = true;
+    get('https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + Place.lat + '&longitude=' + Place.lon
+      + '&current=us_aqi,pm2_5&timezone=auto', {}, function (err, body) {
+      fetchingAir = false;
+      if (err || !body || !body.current) return;
+      air = {aqi: body.current.us_aqi, pm25: body.current.pm2_5, at: Date.now()};
+      airAt = air.at;
+      store('air', {place: PLACE, body: air, at: airAt});
+      changed();
+    });
+  }
+
   function refreshWeather() {
     var now = Date.now();
     if (fetchingWeather || (now - weatherAt < 30 * 60000 && now >= weatherAt)) return;
     fetchingWeather = true;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + Place.lat + '&longitude=' + Place.lon
-        + '&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset'
+        + '&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max'
+        + '&minutely_15=precipitation,precipitation_probability&forecast_minutely_15=8'
         + '&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2';
     get(url, {}, function (err, body) {
       fetchingWeather = false;
@@ -513,9 +551,10 @@ var Data = (function () {
     onChange: function (fn) { listeners.push(fn); },
     setApps: function (apps) { installed = apps; },
     appFor: appFor,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshAir(); refreshPrices(); refreshRecs(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     get weather() { return weather; },
+    get air() { return air; },
     get weatherAt() { return weatherAt; },
     prices: prices,
     changes: changes,

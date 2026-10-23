@@ -362,6 +362,22 @@ var TV = (function () {
       else this.launch('com.palm.app.settings', null, done);
     },
 
+    /** Turns the panel off and keeps the sound on (music apps do this); done(ok). */
+    screenOff: function (done) {
+      if (!webos) { if (done) done(false); return; }
+      luna('luna://com.webos.service.tvpower/power/turnOffScreen', {blockOn: true}, function (res) {
+        if (done) done(!!res);
+      });
+    },
+
+    /** Turns the TV off; done(ok). Not every model answers a third-party app. */
+    powerOff: function (done) {
+      if (!webos) { if (done) done(false); return; }
+      luna('luna://com.webos.service.tvpower/power/turnOff', {reason: 'remoteKey'}, function (res) {
+        if (done) done(!!res);
+      });
+    },
+
     /** Back on the first screen: back to wherever the person came from. */
     back: function () {
       if (samsung) {
