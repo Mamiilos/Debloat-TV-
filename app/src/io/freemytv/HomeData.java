@@ -28,7 +28,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Optional crypto prices (Binance, every 5 min) and weather/sunrise/sunset (Open-Meteo, every 30 min), cached
+ * Optional crypto prices (Binance, every 5 min) and weather/sunrise/sunset (every 30 min: Yandex Weather with a key,
+ * else MET Norway, else Open-Meteo; see WeatherSources), cached
  * so the screen opens with numbers. Only fetched while the home screen or the screensaver is visible (the screen asks).
  * Neither source needs a key. Location and currency come from config.properties.
  */
@@ -104,10 +105,22 @@ final class HomeData {
     }
 
     private static String getPrices() throws IOException {
+        return getBinance(pricesPath());
+    }
+
+    /** The Apple TV theme's mini charts: Prefs.chart() in about 24 to 60 candles. */
+    private static String klinesPath(String symbol) {
+        String range = Prefs.chart();
+        String interval = range.equals("30d") ? "12h" : range.equals("7d") ? "4h" : "1h";
+        int limit = range.equals("30d") ? 60 : range.equals("7d") ? 42 : 24;
+        return "/api/v3/klines?symbol=" + symbol + "&interval=" + interval + "&limit=" + limit;
+    }
+
+    private static String getBinance(String path) throws IOException {
         IOException failed = null;
         for (String host : PRICE_HOSTS) {
             try {
-                return get(host + pricesPath());
+                return get(host + path);
             } catch (IOException e) {
                 // Binance.US has only dollar pairs: its error counts only where Binance.com refuses the US (HTTP 451).
                 // After a timeout or a 5xx there, its HTTP 400 would put the prices in dollars for good.
@@ -141,6 +154,8 @@ final class HomeData {
     final double[] prices = {Double.NaN, Double.NaN, Double.NaN, Double.NaN};
     /** 24 h change (%), in the same order. */
     final double[] changes = {Double.NaN, Double.NaN, Double.NaN, Double.NaN};
+    /** Closing prices over Prefs.chart(), oldest first, in the same order (null until fetched). */
+    final float[][] charts = new float[COINS.length][];
     volatile long pricesAt, weatherAt;
     volatile Weather weather = new Weather();
 
@@ -159,13 +174,20 @@ final class HomeData {
         try {
             if (Prefs.quotes()) {
                 String p = cache.getString("prices", null);
-                if (p != null) parsePrices(p);
+                // The time first: prices cached in another currency set it back to 0, so they're fetched now.
                 pricesAt = cache.getLong("pricesAt", 0);
+                if (p != null) parsePrices(p);
+                if (chartsKey().equals(cache.getString("chartsFor", ""))) {
+                    for (int k = 0; k < COINS.length; k++) {
+                        String body = cache.getString("chart" + k, null);
+                        if (body != null) charts[k] = parseCloses(body);
+                    }
+                }
             }
             String w = cache.getString("weather", null);
             // The cached forecast is for the city it was fetched for; another city means fetch again.
             if (w != null && weatherPlace().equals(cache.getString("weatherPlace", ""))) {
-                weather = parseWeather(w);
+                weather = parseWeather(cache.getString("weatherSource", "open-meteo"), w);
                 weatherAt = cache.getLong("weatherAt", 0);
                 weatherFor = weatherPlace();
             }
@@ -197,6 +219,8 @@ final class HomeData {
                     pricesAt = System.currentTimeMillis();
                     cache.edit().putString("prices", body).putLong("pricesAt", pricesAt).apply();
                     notifyListeners();
+                    fetchCharts();   // the Apple TV home screen and the screensaver draw them
+                    notifyListeners();
                 } catch (Exception e) {
                     pricesFailedAt = System.currentTimeMillis();
                     AppLog.w("prices: " + e.getMessage());
@@ -211,11 +235,12 @@ final class HomeData {
             io.execute(() -> {
                 try {
                     String place = weatherPlace();
-                    String body = get(weatherUrl());
-                    weather = parseWeather(body);
+                    String[] got = fetchWeather();
+                    weather = parseWeather(got[0], got[1]);
                     weatherAt = System.currentTimeMillis();
                     weatherFor = place;
-                    cache.edit().putString("weather", body).putLong("weatherAt", weatherAt).putString("weatherPlace", place).apply();
+                    cache.edit().putString("weather", got[1]).putString("weatherSource", got[0]).putLong("weatherAt", weatherAt)
+                            .putString("weatherPlace", place).apply();
                     notifyListeners();
                 } catch (Exception e) {
                     weatherFailedAt = System.currentTimeMillis();
@@ -235,6 +260,35 @@ final class HomeData {
         main.post(() -> { for (Listener l : new ArrayList<>(listeners)) l.onData(); });
     }
 
+    /** What the cached charts are for: another range or currency means fetch again. */
+    private static String chartsKey() {
+        return Prefs.chart() + quote();
+    }
+
+    /** One call per coin (Binance has no multi-symbol klines); a coin that fails keeps its last chart. */
+    private void fetchCharts() {
+        String key = chartsKey();
+        SharedPreferences.Editor edit = cache.edit();
+        for (int k : active()) {
+            try {
+                String body = getBinance(klinesPath(COINS[k] + quote()));
+                charts[k] = parseCloses(body);
+                edit.putString("chart" + k, body);
+            } catch (Exception e) {
+                AppLog.w("chart " + COINS[k] + ": " + e.getMessage());
+            }
+        }
+        edit.putString("chartsFor", key).apply();
+    }
+
+    /** Binance's klines: [[openTime, open, high, low, close, …], …]. */
+    private static float[] parseCloses(String body) throws Exception {
+        JSONArray list = new JSONArray(body);
+        float[] out = new float[list.length()];
+        for (int i = 0; i < out.length; i++) out[i] = Float.parseFloat(list.getJSONArray(i).getString(4));
+        return out;
+    }
+
     private void parsePrices(String body) throws Exception {
         JSONArray list = new JSONArray(body);
         String quote = quote();
@@ -252,6 +306,36 @@ final class HomeData {
             }
         }
         if (found == 0) pricesAt = 0;   // cached in another currency (config changed): fetch again
+    }
+
+    /**
+     * {source, body}: Yandex Weather with a key, else MET Norway, else Open-Meteo. MET first: some networks (in Russia)
+     * can't reach Open-Meteo, and waiting out its timeout delayed the weather by 6 s every time.
+     */
+    private static String[] fetchWeather() throws Exception {
+        if (!WeatherSources.YANDEX_KEY.isEmpty()) {
+            try {
+                String body = WeatherSources.yandex(Prefs.latitude(), Prefs.longitude());
+                WeatherSources.parseYandex(body);   // an error answer falls through to the next source
+                return new String[] {"yandex", body};
+            } catch (Exception e) {
+                AppLog.w("weather: Yandex: " + e.getMessage());
+            }
+        }
+        try {
+            return new String[] {"met", WeatherSources.met(Prefs.latitude(), Prefs.longitude())};
+        } catch (IOException e) {
+            AppLog.w("weather: MET Norway: " + e.getMessage() + "; trying Open-Meteo");
+            return new String[] {"open-meteo", get(weatherUrl())};
+        }
+    }
+
+    private static Weather parseWeather(String source, String body) throws Exception {
+        switch (source) {
+            case "yandex": return WeatherSources.parseYandex(body);
+            case "met": return WeatherSources.parseMet(body, Double.parseDouble(Prefs.latitude()), Double.parseDouble(Prefs.longitude()));
+            default: return parseWeather(body);
+        }
     }
 
     private static Weather parseWeather(String body) throws Exception {

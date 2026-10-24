@@ -52,11 +52,13 @@ final class Config {
 
     static final String TMDB_KEY = "$(prop tmdb_key '')";
     static final String WATCHMODE_KEY = "$(prop watchmode_key '')";
+    static final String YANDEX_WEATHER_KEY = "$(prop yandex_weather_key '')";
     static final String TMDB_REGION = "$(prop tmdb_region US)";
     static final String LATITUDE = "$LAT";
     static final String LONGITUDE = "$LON";
     static final String CITY = "$(prop city '')";
     static final String LANGUAGE = "$(prop language auto)";
+    static final String THEME = "$(prop theme auto)";
     static final String CURRENCY = "$(prop currency USD)";
     static final String TEMPERATURE = "$(prop temperature auto)";
     static final String HIDE_SERVICES = "$(prop hide_services '')";

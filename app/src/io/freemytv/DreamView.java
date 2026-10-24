@@ -507,6 +507,32 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
         return Math.max(base - 0.1f, Math.min(0.78f, base + (light - 0.3f) * 0.9f));
     }
 
+    // MARK: - Crypto card (CoinsCard), recorded with the corner or the clock
+
+    private CoinsCard coinsCard;
+    private final Paint cardPane = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.RectF cardRect = new android.graphics.RectF();
+
+    private CoinsCard coinsCard() {
+        if (coinsCard == null) coinsCard = new CoinsCard(getContext());
+        return coinsCard;
+    }
+
+    /** Coins on (with the quotes widget on), before the card is laid out. */
+    private int rowsFor() { return Prefs.quotes() ? HomeData.active().length : 0; }
+
+    /** A dark pane under the card, so it reads over any photo. */
+    private void drawCardPane(Canvas c, float left, float top, int rows) {
+        cardRect.set(left, top, left + CoinsCard.W * k, top + CoinsCard.height(rows) * k);
+        cardPane.setStyle(Paint.Style.FILL);
+        cardPane.setColor(0x66000000);
+        c.drawRoundRect(cardRect, 40 * k, 40 * k, cardPane);
+        cardPane.setStyle(Paint.Style.STROKE);
+        cardPane.setStrokeWidth(1.5f * k);
+        cardPane.setColor(0x2EFFFFFF);
+        c.drawRoundRect(cardRect, 40 * k, 40 * k, cardPane);
+    }
+
     // MARK: - Corner: date and weather, glass clock, prices
 
     private void recordChrome() {
@@ -538,28 +564,18 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
                 c.drawText(clock, right - ink.right, CLOCK_TOP * k - ink.top, cornerClock);
             }
 
-            // Compact prices under the clock, right-aligned.
-            float base = (CLOCK_TOP + Ui.cap(cornerClock) / k + QUOTES_GAP) * k;
-            float cap = Ui.cap(cornerQuote), gap = 7 * k, spacing = 26 * k;
-            int[] coins = HomeData.active();
-            int n = HomeData.coinCount();
-            String[] values = new String[n];
-            float[] glyphs = new float[n];
-            float total = spacing * (n - 1);
-            for (int i = 0; i < n; i++) {
-                values[i] = HomeData.compact(data.prices[coins[i]]);
-                glyphs[i] = Glyphs.width(getContext(), HomeData.COINS[coins[i]], cap);
-                total += glyphs[i] + gap + cornerQuote.measureText(values[i]);
+            // Prices under the clock, right-aligned: the Apple TV home screen's card, with charts.
+            int rows = rowsFor();
+            coinsCard();
+            if (rows > 0) {
+                float top = (CLOCK_TOP + Ui.cap(cornerClock) / k + QUOTES_GAP) * k, left = right - CoinsCard.W * k;
+                coinsCard.refresh(data, left, top, k);
+                drawCardPane(c, left, top, rows);
+                coinsCard.draw(c, 1);
+                String stale = HomeData.staleness(data.pricesAt, 5 * 60_000L);
+                if (!stale.isEmpty()) c.drawText(stale, right - cornerStale.measureText(stale),
+                        top + (CoinsCard.height(rows) + 34) * k, cornerStale);
             }
-            float qx = right - total;
-            for (int i = 0; i < n; i++) {
-                Glyphs.coin(getContext(), c, HomeData.COINS[coins[i]], qx + glyphs[i] / 2, base - cap / 2, cap, 0xA6FFFFFF);
-                qx += glyphs[i] + gap;
-                c.drawText(values[i], qx, base, cornerQuote);
-                qx += cornerQuote.measureText(values[i]) + spacing;
-            }
-            String stale = HomeData.staleness(data.pricesAt, 5 * 60_000L);
-            if (!stale.isEmpty() && n > 0) c.drawText(stale, right - total - 24 * k - cornerStale.measureText(stale), base, cornerStale);
         } finally {
             chrome.endRecording();
         }
@@ -784,31 +800,24 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             c.drawText(range, x, base, weatherDim);
         }
 
-        // Prices near the bottom edge: small white logo + value, all four on one line.
-        float cap = Ui.cap(quotePaint), spacing = 56 * k, gap = 10 * k;
-        int[] coins = HomeData.active();
-        String[] values = new String[HomeData.coinCount()];
-        float total = spacing * (values.length - 1);
-        for (int i = 0; i < values.length; i++) {
-            values[i] = HomeData.price(data.prices[coins[i]]);
-            total += Glyphs.width(getContext(), HomeData.COINS[coins[i]], cap) + gap + quotePaint.measureText(values[i]);
-        }
-        float x = cx - total / 2, base = h - 92 * k;
-        for (int i = 0; i < values.length; i++) {
-            float gw = Glyphs.width(getContext(), HomeData.COINS[coins[i]], cap);
-            Glyphs.coin(getContext(), c, HomeData.COINS[coins[i]], x + gw / 2, base - cap / 2, cap, 0x80FFFFFF);
-            x += gw + gap;
-            c.drawText(values[i], x, base, quotePaint);
-            x += quotePaint.measureText(values[i]) + spacing;
+        // Prices at the bottom right: the Apple TV home screen's card, with charts.
+        int rows = rowsFor();
+        coinsCard();
+        float cardTop = h - (CoinsCard.height(rows) + 52) * k;
+        float cardLeft = (RIGHT - CoinsCard.W) * k;
+        coinsCard.refresh(data, cardLeft, cardTop, k);
+        if (rows > 0) {
+            drawCardPane(c, cardLeft, cardTop, rows);
+            coinsCard.draw(c, 1);
         }
         String stale = HomeData.staleness(data.pricesAt, 5 * 60_000L);
-        if (!stale.isEmpty() && values.length > 0) {
+        if (!stale.isEmpty() && rows > 0) {
             if (!stale.equals(staleFor) || Ui.generation != staleGeneration) {
                 staleLine = Ui.trf("prices from {ago}", "ago", stale);
                 staleFor = stale;
                 staleGeneration = Ui.generation;
             }
-            c.drawText(staleLine, cx, base + 38 * k, stalePaint);
+            c.drawText(staleLine, cardLeft + CoinsCard.W * k / 2, h - 36 * k, stalePaint);
         }
     }
 }

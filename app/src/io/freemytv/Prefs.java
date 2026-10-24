@@ -111,13 +111,19 @@ final class Prefs {
 
     static void setTemperature(String v) { put("temperature", v); }
 
-    /** "auto" (dark from sunset to sunrise), "light" or "dark". */
+    /** "auto" (sunset), "light", "dark", or the tvOS app-grid layout. */
     static String theme() {
-        String v = sp().getString("theme", "auto");
-        return v.equals("light") || v.equals("dark") ? v : "auto";
+        String v = sp().getString("theme", Config.THEME);
+        return v.equals("light") || v.equals("dark") || v.equals("appletv") ? v : "auto";
     }
 
     static void setTheme(String v) { put("theme", v); }
+
+    /** The Apple TV theme's own order and folders (AppleHomeView), one entry per line. */
+    static String appleLayout() { return sp().getString("appleLayout", ""); }
+
+    /** Saved without a new version: moving an app must not make the home screen start over. */
+    static void setAppleLayout(String v) { sp().edit().putString("appleLayout", v).apply(); }
 
     // MARK: - City
 
@@ -145,6 +151,13 @@ final class Prefs {
     /** Your photos (Photos, sent from a computer) on the screensaver and behind the home screen, once imported. */
     static boolean photos() { return sp().getBoolean("photos", true); }
     static void setPhotos(boolean on) { put("photos", on); }
+
+    /** The Apple TV theme's crypto charts: "1d", "7d" or "30d". */
+    static String chart() {
+        String v = sp().getString("chart", "1d");
+        return v.equals("7d") || v.equals("30d") ? v : "1d";
+    }
+    static void setChart(String v) { put("chart", v); }
 
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }

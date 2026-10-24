@@ -104,7 +104,7 @@ final class Photos {
     static List<Recs.Pick> picks(Context c) {
         List<Recs.Pick> out = new ArrayList<>();
         if (!on(c)) return out;
-        List<File> list = files(c);
+        List<File> list = forNow(files(c));
         for (int i = 0; i < list.size(); i++) {
             Recs.Pick p = new Recs.Pick();
             p.kind = "photo";
@@ -115,7 +115,62 @@ final class Photos {
         return out;
     }
 
+    // MARK: - Time of day: photos named with dawn, day, dusk or night show only then
+
+    static final String DAWN = "dawn", DAY = "day", DUSK = "dusk", NIGHT = "night";
+    private static final java.util.regex.Pattern PHASE =
+            java.util.regex.Pattern.compile("(?:^|[^a-z])(dawn|day|dusk|night)(?:[^a-z]|$)");
+
+    /** "dawn", "day", "dusk", "night" or "" (any time), from a file name. */
+    static String phaseOf(String name) {
+        java.util.regex.Matcher m = PHASE.matcher(name.toLowerCase(Locale.ROOT));
+        return m.find() ? m.group(1) : "";
+    }
+
+    /** Now at the city in Home Settings: dawn and dusk are the hour or two around sunrise and sunset. */
+    static String phaseNow() {
+        long now = System.currentTimeMillis();
+        long[] sun;
+        try {
+            sun = WeatherSources.sun(Double.parseDouble(Prefs.latitude()), Double.parseDouble(Prefs.longitude()), now);
+        } catch (NumberFormatException e) {
+            sun = WeatherSources.sun(0, 0, now);
+        }
+        long min = 60_000L;
+        if (now >= sun[0] - 45 * min && now < sun[0] + 75 * min) return DAWN;
+        if (now >= sun[1] - 75 * min && now < sun[1] + 45 * min) return DUSK;
+        return now >= sun[0] && now < sun[1] ? DAY : NIGHT;
+    }
+
+    /**
+     * The photos for this time of day, with the untagged ones (any time). Without any for now, dawn borrows the day's
+     * and dusk the night's; failing that, all of them.
+     */
+    static List<File> forNow(List<File> all) {
+        String phase = phaseNow();
+        List<File> out = matching(all, phase);
+        if (out.isEmpty() && phase.equals(DAWN)) out = matching(all, DAY);
+        if (out.isEmpty() && phase.equals(DUSK)) out = matching(all, NIGHT);
+        return out.isEmpty() ? all : out;
+    }
+
+    private static List<File> matching(List<File> all, String phase) {
+        List<File> out = new ArrayList<>();
+        for (File f : all) {
+            String p = phaseOf(f.getName());
+            if (p.isEmpty() || p.equals(phase)) out.add(f);
+        }
+        return out;
+    }
+
     // MARK: - The home screen's background
+
+    /** This hour's photo for this time of day (the one `backdrop` shows), or null when My Photos is off. */
+    static synchronized File now(Context c) {
+        if (!on(c)) return null;
+        List<File> list = forNow(files(c));
+        return list.get((int) ((System.currentTimeMillis() / 3_600_000L) % list.size()));
+    }
 
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
     private static final Handler main = new Handler(Looper.getMainLooper());
@@ -132,7 +187,7 @@ final class Photos {
             built = null;
             return null;
         }
-        List<File> list = files(c);
+        List<File> list = forNow(files(c));
         File want = list.get((int) ((System.currentTimeMillis() / 3_600_000L) % list.size()));
         if (!want.equals(built) && !want.equals(building)) {
             building = want;
@@ -243,8 +298,10 @@ final class Photos {
             if (!sent.renameTo(src)) continue;
             // Named by import time (the order they came is the order the screensaver shows them) and by process (the
             // other one may import in the same millisecond); written as .part first, so a crash leaves no half photo.
-            File out = new File(d, String.format(Locale.US, "%013d-%d.jpg", System.currentTimeMillis() + count,
-                    android.os.Process.myPid()));
+            // A time of day in the sent name (night-mojave.jpg) stays in it: the photo is shown only then (forNow).
+            String tag = phaseOf(original);
+            File out = new File(d, String.format(Locale.US, "%013d-%d%s.jpg", System.currentTimeMillis() + count,
+                    android.os.Process.myPid(), tag.isEmpty() ? "" : "." + tag));
             File part = new File(d, out.getName() + ".part");
             try {
                 Bitmap b = decode(src, W, H);

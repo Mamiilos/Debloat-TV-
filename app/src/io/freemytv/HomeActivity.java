@@ -16,6 +16,7 @@ import android.widget.TextView;
  */
 public class HomeActivity extends Activity {
     private HomeView home;
+    private AppleHomeView appleHome;
     private int prefsVersion = Prefs.version;   // settings changed while we were away: start over
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -34,8 +35,19 @@ public class HomeActivity extends Activity {
             return;
         }
         Ui.init(this);
-        home = new HomeView(this);
-        setContentView(home);
+        if (Prefs.theme().equals("appletv")) {
+            appleHome = new AppleHomeView(this);
+            // A surface for 4K wallpapers under the home screen: video reaches the panel at 4K, the interface at 1080p.
+            android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+            android.view.SurfaceView video = new android.view.SurfaceView(this);
+            root.addView(video, new android.widget.FrameLayout.LayoutParams(-1, -1));
+            root.addView(appleHome, new android.widget.FrameLayout.LayoutParams(-1, -1));
+            appleHome.attachVideo(video);
+            setContentView(root);
+        } else {
+            home = new HomeView(this);
+            setContentView(home);
+        }
         getWindow().setBackgroundDrawable(null);
     }
 
@@ -48,10 +60,12 @@ public class HomeActivity extends Activity {
             return;
         }
         if (home != null) home.resume();
+        if (appleHome != null) appleHome.resume();
     }
 
     @Override protected void onPause() {
         if (home != null) home.pause();
+        if (appleHome != null) appleHome.pause();
         super.onPause();
     }
 
@@ -59,10 +73,12 @@ public class HomeActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (home != null) home.reset(true);
+        if (appleHome != null) appleHome.reset();
     }
 
     @Override protected void onDestroy() {
         if (home != null) home.destroy();
+        if (appleHome != null) appleHome.destroy();
         super.onDestroy();
     }
 
@@ -74,6 +90,7 @@ public class HomeActivity extends Activity {
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         if (RemoteKeys.onKey(this, event)) return true;
         if (home != null && home.onKey(event)) return true;
+        if (appleHome != null && appleHome.onKey(event)) return true;
         return super.dispatchKeyEvent(event);
     }
 
