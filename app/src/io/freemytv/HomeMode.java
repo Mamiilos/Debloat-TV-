@@ -99,6 +99,29 @@ final class HomeMode {
         HTC_HOME,                                                                     // the stock home (and an ad SDK)
     };
 
+    /**
+     * background_process_limit: the most apps Android keeps cached, for TCL TVs with 2 GB or less. Their memory manager
+     * (TGuard) kills even an app's running service when memory runs short, a VPN's too; fewer cached apps leave it less
+     * reason to. Developer options' "Background process limit" lasts only until a restart; device_config stays.
+     * Android 10 and newer.
+     */
+    private static final String PROCESS_LIMIT = "activity_manager max_cached_processes";
+
+    /** The limit on in Free My TV mode; Android's own back on free=false or when the setting was emptied. */
+    private static void processLimit(Adb adb, JSONObject s, boolean free) throws IOException, JSONException {
+        if (Build.VERSION.SDK_INT < 29) return;
+        int limit = free ? Config.BACKGROUND_PROCESS_LIMIT : 0;
+        if (limit > 0) {
+            if (!String.valueOf(limit).equals(adb.shell("device_config get " + PROCESS_LIMIT).trim())) {
+                adb.shell("device_config put " + PROCESS_LIMIT + " " + limit);
+            }
+            s.put("processLimit", true);
+        } else if (s.optBoolean("processLimit")) {
+            adb.shell("device_config delete " + PROCESS_LIMIT);
+            s.remove("processLimit");
+        }
+    }
+
     /** The voice assistant, only with disable_assistant=true in config.properties (the mic button stops working). */
     static final String[] ASSISTANT = {"com.google.android.katniss", "com.android.hotwordenrollment.okgoogle"};
 
@@ -410,6 +433,7 @@ final class HomeMode {
             }
             record(adb, disabled);
             s = state(c);
+            processLimit(adb, s, true);
             s.put("mode", FREE).put("since", System.currentTimeMillis()).put("homeReverted", false)
                     .put("disabled", new JSONArray(sorted(disabled))).put("setupHome", setupHome);
             save(c, s);
@@ -479,6 +503,7 @@ final class HomeMode {
             adb.shell("appops set " + PKG + " SYSTEM_ALERT_WINDOW default");   // SleepOverlay's, if it was allowed
             Capabilities.forget(c, Capabilities.OVERLAY);                       // asked again next time
             s = state(c);
+            processLimit(adb, s, false);
             s.put("mode", ORIGINAL).put("since", System.currentTimeMillis()).put("homeReverted", false)
                     .put("disabled", new JSONArray(failed)).remove("keptOff");
             save(c, s);
@@ -697,6 +722,7 @@ final class HomeMode {
                 }
                 record(adb, disabled);
                 JSONObject latest = state(app);
+                processLimit(adb, latest, true);
                 latest.put("disabled", new JSONArray(sorted(disabled)));
                 save(app, latest);
             } catch (Exception e) {

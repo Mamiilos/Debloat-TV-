@@ -206,6 +206,10 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   size, so both draw pixel for pixel.
 - `HomeMode` runs every switch as a background job (`ModeJob`) in the main process; the UI is in the `:home`
   process. `Watchdog` goes back to the stock home screen after 3 crashes in 5 minutes.
+- `background_process_limit` (TCL TVs with 2 GB or less): `HomeMode.processLimit` sets `device_config
+  activity_manager max_cached_processes` in Free My TV mode and at the boot check, and deletes it with *Original*.
+  Developer options' limit is gone after a restart, and TCL's TGuard kills even running services (a VPN's) when
+  memory runs short (tested on a 2 GB Smart TV Pro, Android 11).
 - On-screen text: `Ui.tr("English")`, translated from `app/assets/i18n/<lang>.json` (keyed by the English; one
   HashMap lookup, English when a language lacks it). Text built at runtime is a pattern: `Ui.trf("{n} min ago", "n", 12)`,
   never concatenated words. A key `"context|Text"` is the same English where a language may need another word

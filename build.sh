@@ -54,6 +54,8 @@ fi
 ASSIST=false; [ "$(prop disable_assistant false)" = "true" ] && ASSIST=true
 CRYPTO=false; [ "$(prop show_crypto true)" = "true" ] && CRYPTO=true
 ANIMATION=false; [ "$(prop hide_animation false)" = "true" ] && ANIMATION=true
+PROCESSES="$(prop background_process_limit 0)"
+[[ "$PROCESSES" =~ ^[0-9]+$ ]] || { echo "config.properties: background_process_limit must be a whole number (got \"$PROCESSES\")" >&2; exit 1; }
 
 rm -rf out && mkdir -p out/gen/io/freemytv out/classes
 cat > out/gen/io/freemytv/Config.java <<EOF
@@ -77,6 +79,7 @@ final class Config {
     static final boolean DISABLE_ASSISTANT = $ASSIST;
     static final boolean SHOW_CRYPTO = $CRYPTO;
     static final boolean HIDE_ANIMATION = $ANIMATION;
+    static final int BACKGROUND_PROCESS_LIMIT = $PROCESSES;
 }
 EOF
 
