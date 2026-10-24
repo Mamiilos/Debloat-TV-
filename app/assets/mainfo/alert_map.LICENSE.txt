@@ -1,0 +1,19 @@
+Ukraine oblasts, cities with special status and 136 raions (2020 boundaries)
+
+Source: Fedir Gontsa (Федір Гонца) / OPORA (ОПОРА)
+https://www.oporaua.org/longrid/map_2020.html
+https://fedir.gontsa.com/
+
+Mirror and licensing statement:
+https://github.com/slawomirmatuszak/ukrainian_geodata
+Pinned source commit: 811239e43aaefa07e3e23b28770731087d75456c
+
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+Changes for MaInfo: Mercator projection; topology-preserving simplification;
+Kyiv city added from the source hromada layer; six renamed-raion aliases;
+formatted as offline vector paths. Display contours are not cadastral boundaries.
+
+Regenerate with scripts/build_alert_map.py (Python 3.11+ and Shapely 2.x).
+The script verifies SHA-256 hashes of all pinned source files.

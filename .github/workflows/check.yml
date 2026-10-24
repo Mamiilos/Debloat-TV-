@@ -5,7 +5,7 @@ name: Check
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, codex/mainfo-dashboard]
 
 permissions:
   contents: read

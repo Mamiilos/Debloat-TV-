@@ -1,0 +1,16 @@
+// Run against the independent MaInfo checkout to reuse its Android/Robolectric toolchain.
+gradle.projectsEvaluated {
+    def app = rootProject.project(':app')
+    def freeMyTv = new File(rootProject.projectDir, '../../..').canonicalFile
+    def generated = new File(app.buildDir, 'generated/freemytv-test-src/io/freemytv')
+    generated.mkdirs()
+    ['MaInfoBridge.java', 'PowerSchedule.java'].each { name ->
+        new File(generated, name).bytes = new File(freeMyTv, 'app/src/io/freemytv/' + name).bytes
+    }
+    app.android.sourceSets.test.java.srcDir(new File(app.buildDir, 'generated/freemytv-test-src'))
+    app.android.sourceSets.test.java.srcDir(new File(freeMyTv, 'tools/mainfo-tests/src'))
+    def resources = new File(app.buildDir, 'generated/freemytv-test-resources/mainfo')
+    resources.mkdirs()
+    new File(resources, 'alert_map.json').bytes = new File(freeMyTv, 'app/assets/mainfo/alert_map.json').bytes
+    app.android.sourceSets.test.resources.srcDir(resources.parentFile)
+}

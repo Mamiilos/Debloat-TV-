@@ -1,0 +1,14 @@
+{
+  "FreeMyTV.apk": {
+    "bytes": 1623102,
+    "sha256": "496b3e19f68cf9dc676ecb9587a61ebbc7294766d839df2089a83fd4bc47f365"
+  },
+  "MyApps/MaInfo_2_2-unsigned.apk": {
+    "bytes": 156656482,
+    "sha256": "fff1cdc61373885660f7f49ef84b31b153535758758630d1a7f05241557ede5e"
+  },
+  "integrations/MaInfo-integration.patch": {
+    "bytes": 25990,
+    "sha256": "d489a8f30a24c6e0b2d534cf4e705d8d4450baebcbcb7b18a9a1c6685516c981"
+  }
+}

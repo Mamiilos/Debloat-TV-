@@ -106,6 +106,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Activity activity;
     private final Scene scene = new Scene();
     private final HomeData data;
+    private final MaInfoBridge maInfo;
     private final Recs recs;
     private final Click click;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -118,7 +119,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         @Override public int focused() { return a11yFocused(); }
         @Override public void focus(int id) { a11yFocus(id); }
         @Override public void click(int id) { activate(); }
-        @Override public boolean clickable(int id) { return (id - 1) / 1000 != WIDGETS; }
+        @Override public boolean clickable(int id) { return (id - 1) / 1000 != WIDGETS && (id - 1) / 1000 != MAINFO; }
         @Override public boolean holdable(int id) { return (id - 1) / 1000 == GRID && canToggleShelf((id - 1) % 1000); }
         @Override public void hold(int id) { a11yHold(); }
     });
@@ -347,6 +348,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (!running) return;
             wake();
             data.refreshIfStale();
+            refreshMaInfo();
             recs.refreshIfStale();
             checkNotices();
             updatePalette();
@@ -360,6 +362,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         super(a);
         activity = a;
         data = HomeData.get(a);
+        maInfo = new MaInfoBridge(a, this::onMaInfoData);
         recs = Recs.get(a);
         click = new Click(a);
         shelfVisible = HomeApps.shelfVisible(a);
@@ -421,6 +424,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastNanos = 0;
         lastStep = 0;
         data.addListener(this);
+        refreshMaInfo();
         recs.addListener(this);
         data.refreshIfStale();
         recs.refreshIfStale();
@@ -456,6 +460,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     void destroy() {
         pause();
+        maInfo.close();
         if (launcherApps != null) launcherApps.unregisterCallback(packages);
         click.release();
     }
@@ -505,6 +510,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             tabsGeneration = Ui.generation;
         }
         return tabs;
+    }
+
+    private void onMaInfoData() {
+        if (!running) return;
+        heroDirty = true;
+        heroLayer.invalidate();
+        setContentDescription("Free My TV. " + maInfo.description());
+        wake();
+    }
+
+    private void refreshMaInfo() {
+        maInfo.refresh(k, Ui.language, new String[] {
+            Ui.tr("Air alerts"), Ui.tr("Alert data unavailable"), Ui.tr("Alert data outdated"),
+            Ui.tr("No current data"), Ui.tr("Outages scheduled today"), Ui.tr("No more outages today"),
+            Ui.tr("Update MaInfo"), Ui.tr("Power group"), Ui.tr("No active alerts"),
+            Ui.tr("Active alerts"), Ui.tr("Some alerts are outside the map")
+        });
     }
 
     @Override public void onData() {
@@ -570,6 +592,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         w = width;
         h = height;
         k = w / 1920f;
+        refreshMaInfo();
         screen.set(0, 0, w, h);
         scene.setSize(w, h);
         makePaints();
@@ -2531,7 +2554,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - TalkBack: every reachable item as a virtual node (Spoken). Id = group * 1000 + index + 1.
 
     /** The drawer's weather (0) and quotes (1) cards: read by TalkBack, never focused by the remote. */
-    private static final int GRID = 9, WIDGETS = 8;
+    private static final int GRID = 9, WIDGETS = 8, MAINFO = 10;
 
     private static int a11yId(int group, int index) {
         return group * 1000 + index + 1;
@@ -2546,6 +2569,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             for (int i = 0; i < others.size(); i++) out.add(a11yId(GRID, i));
             return;
         }
+        if (!picksOn() && !maInfo.description().isEmpty()) out.add(a11yId(MAINFO, 0));
         for (int i = picksOn() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
         for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
         for (int i = shelfFirst; i < Math.min(shelf.size(), shelfFirst + shelfVisible); i++) out.add(a11yId(Z_SHELF, i));
@@ -2572,6 +2596,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 return label(shelf, i);
             case Z_DRAWER: return label(drawerItems, i);
             case WIDGETS: return i == 0 ? weatherText() : quotesText();
+            case MAINFO: return maInfo.description();
             default: return "";
         }
     }
@@ -2617,6 +2642,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (!drawerOpen) return false;
                 a11yRect.set(i == 0 ? weatherCard : quotesCard);
                 dy = 0;
+                break;
+            case MAINFO:
+                if (picksOn()) return false;
+                a11yRect.set(1000 * k, 230 * k, 1840 * k, 730 * k);
+                dy = heroLayer.getTranslationY();
                 break;
             default:
                 return false;
@@ -2670,6 +2700,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         if (sheetOpen || reordering) return;
+        if (group == MAINFO) {
+            if (drawerOpen) closeDrawer();
+            return;
+        }
         switch (group) {
             case Z_DRAWER:
                 if (i >= drawerItems.size()) return;
@@ -2859,6 +2893,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         applyTone();
         if (!picksOn()) {
             drawClock(c);
+            maInfo.draw(c, 1000 * k, 230 * k, k);
             if (HomeData.coinCount() > 0) drawQuotes(c);
             return;
         }

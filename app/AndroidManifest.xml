@@ -13,6 +13,7 @@
          returns null). The shelf and streaming apps, the live TV apps and, through the <intent>, every TV app
          (for "All Apps"). -->
     <queries>
+        <package android:name="ua.pp.ds7.mainfo" />
         <package android:name="com.netflix.ninja" />
         <package android:name="com.google.android.youtube.tv" />
         <package android:name="com.amazon.firetv.youtube" />
