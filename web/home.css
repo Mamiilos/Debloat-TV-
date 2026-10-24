@@ -153,6 +153,24 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .night #quotes { color: rgba(245, 245, 247, 0.62); }
 .night #quotes svg { fill: rgba(245, 245, 247, 0.55); }
 
+/* The time and date, always up at the left of the round buttons (the big clock takes over without picks). */
+#now {
+  position: absolute;
+  right: 360px;
+  top: 67px;
+  text-align: right;
+  white-space: nowrap;
+  color: #1D1D1F;
+  font-feature-settings: 'tnum';
+  -webkit-transition: color 2s;
+  transition: color 2s;
+}
+#now .time { display: block; font-size: 46px; font-weight: 300; line-height: 46px; letter-spacing: -0.01em; }
+#now .date { display: block; margin-top: 2px; font-size: 21px; font-weight: 500; line-height: 24px; color: #6E6E73; }
+.no-picks #now { display: none; }
+.night #now { color: #F5F5F7; }
+.night #now .date { color: rgba(245, 245, 247, 0.62); }
+
 /* Live TV, HDMI Inputs and Settings: glass circles; the focused one turns white, with its name below. */
 .round {
   position: absolute;

@@ -423,9 +423,13 @@
   }
 
   function renderClock() {
-    var d = new Date(), c = $('clock');
-    c.firstChild.textContent = formatDate('format|h:mm', d.getTime());
-    c.lastChild.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
+    var at = Date.now(), time = formatDate('format|h:mm', at), date = formatDate('format|EEEE, MMMM d', at);
+    var ids = ['clock', 'now'];
+    for (var i = 0; i < ids.length; i++) {
+      var c = $(ids[i]);
+      c.firstChild.textContent = time;
+      c.lastChild.textContent = date;
+    }
   }
 
   /** On the minute, so the clock never runs late (the 30-second refresh could, by up to 30 s). */
