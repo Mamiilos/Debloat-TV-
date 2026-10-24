@@ -5,6 +5,7 @@ import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Shader;
 
 /**
@@ -69,6 +70,49 @@ final class Backdrop {
         this.nightGlass = nightGlass;
         lightImage = lightBg == null ? null : Bitmap.createBitmap(lightBg, bw, bh, Bitmap.Config.ARGB_8888);
         nightImage = nightBg == null ? null : Bitmap.createBitmap(nightBg, bw, bh, Bitmap.Config.ARGB_8888);
+    }
+
+    /** The picture of the day: the sharp photo is the background by day and at night (the screen keeps its night look). */
+    private Backdrop(Bitmap photo, int[] frost, int[] glass) {
+        image = photo;
+        this.frost = frost;
+        this.glass = glass;
+        wide = null;
+        tall = null;
+        wideShader = null;
+        tallShader = null;
+        light = frost;
+        lightGlass = glass;
+        nightFrost = frost;
+        nightGlass = glass;
+        lightImage = photo;
+        nightImage = photo;
+    }
+
+    /**
+     * Wallpaper (Bing's picture of the day): the photo at 1920×1080, dimmed a little (more when it's bright) and more at
+     * the top (the title or the clock) and the bottom (the shelf), for white text; the glass reads it smoked.
+     */
+    static Backdrop wallpaper(Bitmap src) {
+        Bitmap out = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        float scale = Math.max((float) W / src.getWidth(), (float) H / src.getHeight());
+        float sw = src.getWidth() * scale, sh = src.getHeight() * scale;
+        c.drawBitmap(src, null, new RectF((W - sw) / 2, (H - sh) / 2, (W + sw) / 2, (H + sh) / 2),
+                new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG));
+        src.recycle();
+        float boost = Math.max(0, Math.min(0.18f, (luminance(out, 0, 0, 1, 1) - 0.4f) * 0.5f));
+        c.drawColor(black(0.16f + boost));
+        Paint scrim = new Paint(Paint.DITHER_FLAG);
+        scrim.setShader(new LinearGradient(0, 0, 0, H * 0.5f, new int[] {black(0.42f), black(0.18f), 0},
+                new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, W, H * 0.5f, scrim);
+        scrim.setShader(new LinearGradient(0, H, 0, H * 0.55f, new int[] {black(0.4f), black(0.16f), 0},
+                new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP));
+        c.drawRect(0, H * 0.55f, W, H, scrim);
+        int[] frost = darken(reduce(out, FW, FH, 3, 3), 0.45f);
+        int[] glass = darken(reduce(out, GW, GH, 2, 2), 0.3f);
+        return new Backdrop(gpu(out), frost, glass);
     }
 
     static Backdrop make(Bitmap src, boolean forLight) {

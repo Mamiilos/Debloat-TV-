@@ -23,7 +23,7 @@ Open source. Built with Claude Code. One button to undo.
 - **Weather and markets, one press away.** The hour-by-hour forecast, sunrise and sunset, and live crypto prices.
 - **Light by day, dark by night.** It follows your city's real sunset, the way your phone does.
 - **A screensaver to match.** Full-screen photos of the picks with a big glass clock.
-- **Your own photos** (Google TV and Android TV). Send them from your computer (up to 100): the screensaver shows them, and without picks one is the home screen's background each hour.
+- **Your own photos** (Google TV and Android TV). Send them from your computer (up to 100), and pick *My Photos* under *Home Settings* → *Background*: one is the home screen's background each hour, and the screensaver shows them. The same setting also offers Bing's picture of the day.
 - **Fast.** 60 fps, every frame in 16.6 ms, on the TV's own chip. The home screen uses 96 MB of memory instead of 242 MB (−60%).<br><sub>Measured on a 98″ TCL Google TV running Android 14.</sub>
 - **Set up on the TV.** Language, your city, temperature, theme, the weather and prices cards, which coins, and the apps on the shelf, in Free My TV's own settings.
 - **Safe.** No root. Nothing is uninstalled. One button brings back the factory home screen.
@@ -147,7 +147,9 @@ On Google TV and Android TV, with the TV connected over adb (see *Install*), sen
 python3 tools/photos.py <TV IP> beach.jpg hills.jpg Holidays/
 ```
 
-They land in the app's own folder on the TV (no permission needed); on Android 11, which keeps adb out of other apps' folders, they go through Free My TV itself. The next time the home screen, the screensaver or Free My TV's settings open, the app imports each one: turned upright, cropped to 16:9, resized for the TV and saved without its GPS and other tags; what was sent is then deleted. The screensaver shows them in the order you sent them, instead of the picks' photos; without a TMDB key, one of them is the home screen's background, a new one every hour. *Home Settings* → *My Photos*: the arrows turn them on or off, OK removes them. Up to 100; JPEG, PNG and WebP, and HEIC on Android 9 and newer.
+Without Python (Git Bash on Windows, for one), `tools/photos.sh` takes the same arguments and needs only adb.
+
+They land in the app's own folder on the TV (no permission needed); on Android 11, which keeps adb out of other apps' folders, they go through Free My TV itself. The next time the home screen, the screensaver or Free My TV's settings open, the app imports each one: turned upright, cropped to 16:9, resized for the TV and saved without its GPS and other tags; what was sent is then deleted. New photos become the background by themselves (unless the picture of the day is picked). *Home Settings* → *Background* chooses between *Default*, *Picture of the day* (Bing's) and *My Photos*: with *My Photos*, one of them is the home screen's background, a new one every hour, and the screensaver shows them in the order you sent them, instead of the picks' photos; OK on that row removes them. Up to 100; JPEG, PNG and WebP, and HEIC on Android 9 and newer.
 
 ## Going back
 
@@ -204,7 +206,7 @@ It's your code, and Claude Code finds its way around it. Try:
 - **Drawn by hand on one Canvas**, with Android 13 shaders for the frosted glass and the sky (plain fills on Android 8 to 12, with lighter shadows and no GPU layers on 8 to 11 for their older GPUs).
 - **A safety net.** A watchdog in a separate process brings back the stock home screen after three crashes in five minutes, and a boot check keeps your choice after TV updates.
 - **On LG and Samsung, the same design in plain HTML, CSS and JavaScript** ([`web/`](web)), written for the Chromium of older TVs, with no frameworks. [`webos/build.py`](webos/build.py) packs it with `config.properties` into an `.ipk` without LG's tools, and [`webos/install.py`](webos/install.py) installs it through Developer Mode; on LG it lists and opens apps through the TV's own service bus (Luna), as LG's launcher does. [`tizen/build.py`](tizen/build.py) packs the same app into a Samsung `.wgt`, which uses Tizen's web APIs for the apps and the inputs. To preview it on a computer: `python3 webos/build.py --preview`, then open `out/webos/index.html` (a stand-in lists sample apps).
-- **Data** from TMDB (trending titles, new releases and which app streams what in your country), Open-Meteo (forecast, sunrise and sunset), and optionally Binance (24-hour prices when `show_crypto=true`).
+- **Data** from TMDB (trending titles, new releases and which app streams what in your country), Open-Meteo (forecast, sunrise and sunset), optionally Binance (24-hour prices when `show_crypto=true`) and, with *Background* on *Picture of the day* in Home Settings, Bing (its photo of the day).
 
 | File | What it is |
 |---|---|

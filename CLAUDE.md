@@ -208,6 +208,8 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   are. Run `python3 tools/translate.py --check` to validate all catalogues without writing files.
   No right-to-left languages yet (the layout isn't mirrored); CJK and Devanagari use the system font.
   Comments in English, short, only where the why isn't obvious.
+- The app talks only to TMDB, Open-Meteo, Binance and, with Home Settings > Background on Picture of the day
+  (`Wallpaper`), Bing: new sources must not add network calls without the owner's OK.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL,

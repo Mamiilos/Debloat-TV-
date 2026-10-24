@@ -660,8 +660,8 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, quotes, then one row per coin. */
-        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, COIN_ROWS = 8;
+        /** Home Settings: language, temperature, theme, background, sounds, weather, city, quotes, then one row per coin. */
+        private static final int BACKGROUND_ROW = 3, CITY_ROW = 6, COIN_ROWS = 8;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
@@ -674,7 +674,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Language"));
             l.add(Ui.tr("Temperature"));
             l.add(Ui.tr("Theme"));
-            l.add(Ui.tr("My Photos"));
+            l.add(Ui.tr("Background"));
             l.add(Ui.tr("Navigation sounds"));
             l.add(Ui.tr("Weather widget"));
             l.add(Ui.tr("City"));
@@ -695,9 +695,10 @@ public class SettingsActivity extends Activity {
             v[1] = unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("unit|Automatic");
             String theme = Prefs.theme();
             v[2] = theme.equals("light") ? Ui.tr("Light") : theme.equals("dark") ? Ui.tr("Dark") : Ui.tr("Automatic");
-            int photos = Photos.files(getContext()).size();
-            v[PHOTOS_ROW] = photos == 0 ? Ui.tr("photos|None")
-                    : Prefs.photos() ? Ui.plural("plural|one:{n} photo|other:{n} photos", photos) : Ui.tr("Off");
+            String bg = background();
+            v[BACKGROUND_ROW] = bg.equals(Prefs.BG_DAY) ? Ui.tr("Picture of the day")
+                    : bg.equals(Prefs.BG_PHOTOS) ? Ui.tr("My Photos") + " · " + Photos.files(getContext()).size()
+                    : Ui.tr("background|Default");
             v[4] = onOff(Prefs.sounds());
             v[5] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
@@ -787,10 +788,12 @@ public class SettingsActivity extends Activity {
                     Prefs.setTheme(THEMES[(at + dir + THEMES.length) % THEMES.length]);
                     break;
                 }
-                case PHOTOS_ROW:
-                    if (Photos.files(getContext()).isEmpty()) return;
-                    Prefs.setPhotos(!Prefs.photos());
-                    return;
+                case BACKGROUND_ROW: {
+                    List<String> choices = backgrounds();
+                    int at = choices.indexOf(background());
+                    Prefs.setBackground(choices.get((at + dir + choices.size()) % choices.size()));
+                    break;
+                }
                 case 4: Prefs.setSounds(!Prefs.sounds()); break;
                 case 5: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
@@ -823,9 +826,22 @@ public class SettingsActivity extends Activity {
             dialog.show();
         }
 
-        // MARK: - My Photos (sent from a computer: tools/photos.py)
+        // MARK: - Background and My Photos (sent from a computer: tools/photos.py)
 
-        /** OK on My Photos: asks, then deletes them all. */
+        /** What Background can be: My Photos only once some came in. */
+        private List<String> backgrounds() {
+            List<String> l = new ArrayList<>(java.util.Arrays.asList(Prefs.BG_DEFAULT, Prefs.BG_DAY));
+            if (!Photos.files(getContext()).isEmpty()) l.add(Prefs.BG_PHOTOS);
+            return l;
+        }
+
+        /** The background in use: My Photos without photos is the default one. */
+        private String background() {
+            String bg = Prefs.background();
+            return bg.equals(Prefs.BG_PHOTOS) && Photos.files(getContext()).isEmpty() ? Prefs.BG_DEFAULT : bg;
+        }
+
+        /** OK on Background with My Photos: asks, then deletes them all (the default background takes over). */
         private void askRemovePhotos() {
             int n = Photos.files(getContext()).size();
             if (n == 0) return;
@@ -833,6 +849,7 @@ public class SettingsActivity extends Activity {
                     .setTitle(Ui.plural("plural|one:Remove {n} photo?|other:Remove {n} photos?", n))
                     .setPositiveButton(Ui.tr("Remove"), (d, which) -> {
                         Photos.removeAll(getContext());
+                        Prefs.setBackground(Prefs.BG_DEFAULT);
                         invalidate();
                         spoken.focusMoved();
                     })
@@ -1050,9 +1067,11 @@ public class SettingsActivity extends Activity {
             float hy = (LIST_TOP + 20 + rows * pitch + 36) * k;
             // A list longer than the screen says where we are in it, as the app picker does.
             String where = rows < labels.length ? (from + focus + 1) + " / " + labels.length + "  ·  " : "";
-            c.drawText(where + (!keys && from + focus == PHOTOS_ROW ? (Photos.files(getContext()).isEmpty()
-                    ? Ui.tr("Send them from a computer: see “Your own photos” in the README.")
-                    : Ui.tr("OK removes them; the arrows turn them on or off."))
+            boolean bgRow = !keys && from + focus == BACKGROUND_ROW;
+            c.drawText(where + (bgRow && background().equals(Prefs.BG_PHOTOS)
+                    ? Ui.tr("OK removes your photos; the arrows change the background.")
+                    : bgRow && Photos.files(getContext()).isEmpty()
+                    ? Ui.tr("My Photos: send them from a computer (see “Your own photos” in the README).")
                     : Ui.tr("OK or the arrows change the value.")), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video and Google Play: the TV itself controls those buttons.")
@@ -1104,7 +1123,8 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && pickScroll + focus == CITY_ROW) {
                 askCity();
                 return;
-            } else if (screen == HOME_SETTINGS && pickScroll + focus == PHOTOS_ROW) {
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == BACKGROUND_ROW
+                    && background().equals(Prefs.BG_PHOTOS)) {
                 askRemovePhotos();
                 return;
             } else if (screen == HOME_SETTINGS) {

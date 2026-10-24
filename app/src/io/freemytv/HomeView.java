@@ -59,7 +59,8 @@ import java.util.function.Consumer;
  * Measurements are in a 1920×1080 space (k = width / 1920). The screen is split into layers so the TV's weak GPU only
  * redraws what changed.
  */
-final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener {
+final class HomeView extends ViewGroup implements Choreographer.FrameCallback, HomeData.Listener, Recs.Listener,
+        Wallpaper.Listener {
     // tvOS grid (Human Interface Guidelines): content inside the safe area, 80 px from the sides and 60 from top and
     // bottom; 40 px between items; 7 columns of 217 px (the apps). The shelf glass extends 36 px past the tiles (the
     // same padding on all four sides) and the tile corners are concentric with it (glass radius = radius + padding).
@@ -107,6 +108,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Scene scene = new Scene();
     private final HomeData data;
     private final Recs recs;
+    private final Wallpaper wall;
     private final Click click;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final SharedPreferences ui;
@@ -348,6 +350,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             wake();
             data.refreshIfStale();
             recs.refreshIfStale();
+            wall.refreshIfStale();
             checkNotices();
             updatePalette();
             checkNight(true);
@@ -361,6 +364,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         activity = a;
         data = HomeData.get(a);
         recs = Recs.get(a);
+        wall = Wallpaper.get(a);
         click = new Click(a);
         shelfVisible = HomeApps.shelfVisible(a);
         ui = a.getSharedPreferences("home-ui", Context.MODE_PRIVATE);
@@ -425,6 +429,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         data.refreshIfStale();
         recs.refreshIfStale();
         Photos.importInbox(getContext(), ownReady);   // photos a computer just sent
+        wall.addListener(this);
+        wall.refreshIfStale();
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
         checkNotices();
@@ -451,6 +457,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(reloadSoon);
         data.removeListener(this);
         recs.removeListener(this);
+        wall.removeListener(this);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
     }
 
@@ -514,6 +521,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         layoutStatus();
         heroDirty = statusDirty = drawerDirty = true;
         platter.invalidate();
+    }
+
+    /** The picture of the day is in (or was turned off): it takes over the background, with the night look. */
+    @Override public void onWallpaper() {
+        wake();
+        checkNight(true);
+        updatePicks();
     }
 
     @Override public void onRecs() {
@@ -849,6 +863,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Swaps the background with a cross-fade (from one image to another, from the gradient to an image, or back). */
     private void showBackdrop(Backdrop b) {
+        Backdrop chosen = chosenBackdrop();   // in place of any other
+        if (chosen != null) b = chosen;
         if (b == bgTo) return;
         long up = SystemClock.uptimeMillis();
         // In the middle of another swap, start from whichever is more visible.
@@ -904,7 +920,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Day or night right now (from the sun at your location); `animate`: with the transition. */
     private void checkNight(boolean animate) {
-        boolean want = data.isNight(System.currentTimeMillis());
+        // White text and smoked glass on the picture of the day, at any hour.
+        boolean want = data.isNight(System.currentTimeMillis()) || wall.backdrop() != null;
         if (want == nightTarget) return;
         nightTarget = want;
         if (animate && running) {
@@ -2796,12 +2813,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             }
         }
         for (Recs.Pick p : recs.wanted()) recs.backdrop(p);   // all three tabs preloaded: switching tabs is instant
-        // Picks bring their own background; without them (no TMDB key), your photo if there is one.
-        boolean own = !picksOn() && Photos.on(getContext());
-        Backdrop b = own ? Photos.backdrop(getContext(), ownReady) : cards.isEmpty() ? null : recs.backdrop(cards.get(0));
-        if (b != null || (cards.isEmpty() && !own)) showBackdrop(b);
+        // The background picked in Home Settings (showBackdrop) wins over the first pick's.
+        Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(0));
+        if (cards.isEmpty() || b != null || chosenBackdrop() != null) showBackdrop(b);
         heroDirty = true;
         spoken.focusMoved();    // new picks under the focused card
+    }
+
+    /**
+     * The background picked in Home Settings > Background, ready to draw: the picture of the day or this hour's photo
+     * of yours. Null for the default one, or while the picked one is still being made (its listener draws it then).
+     */
+    private Backdrop chosenBackdrop() {
+        Backdrop w = wall.backdrop();
+        if (w != null || !Photos.on(getContext())) return w;
+        return Photos.backdrop(getContext(), ownReady);
     }
 
     /** Your photo's background is ready (or new photos came in): draw it. */

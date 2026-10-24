@@ -29,9 +29,9 @@ import java.util.concurrent.Executors;
  * Android/data/io.freemytv/files/photos, no permission needed) or, where adb can't reach it, through PhotoInbox; the
  * next time the home screen, the screensaver or the settings open, each one is imported once into the app's private
  * folder, turned upright (EXIF), cropped to 16:9 and re-encoded at the screensaver's size (which also drops its GPS and
- * other tags), and the original is deleted. While they are on (Home Settings > My Photos), the screensaver shows them
- * instead of the picks' photos, in the order they came, and without picks (no TMDB key) one of them is the home
- * screen's background, a new one every hour.
+ * other tags), and the original is deleted. With Home Settings > Background on My Photos, one of them is the home
+ * screen's background (a new one every hour), and the screensaver shows them instead of the picks' photos, in the
+ * order they came.
  */
 final class Photos {
     private Photos() {}
@@ -265,7 +265,8 @@ final class Photos {
             src.delete();
         }
         AppLog.w("photos: imported " + count + ", " + (have + count) + " in all");
-        if (count > 0) Prefs.setPhotos(true);   // new photos show, even if they had been turned off
+        // New photos show, unless the picture of the day was picked.
+        if (count > 0 && Prefs.background().equals(Prefs.BG_DEFAULT)) Prefs.setBackground(Prefs.BG_PHOTOS);
         return count;
     }
 

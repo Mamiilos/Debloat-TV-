@@ -48,7 +48,7 @@ public class PhotoInbox extends ContentProvider {
         long expected = size(uri);
         // Written under a hidden name (an import meanwhile leaves it alone) and named only once all of it came: a send
         // cut short (Ctrl-C, Wi-Fi) also closes cleanly. Imported like a pushed photo, at the next open: an import here,
-        // in the main process, could save its stale copy of the settings over :home's (Prefs.setPhotos).
+        // in the main process, could save its stale copy of the settings over :home's (Prefs.setBackground).
         File part = new File(in, "." + name), done = new File(in, name);
         try {
             return ParcelFileDescriptor.open(part, ParcelFileDescriptor.MODE_WRITE_ONLY | ParcelFileDescriptor.MODE_CREATE

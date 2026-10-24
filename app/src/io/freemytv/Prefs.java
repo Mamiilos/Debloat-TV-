@@ -142,9 +142,25 @@ final class Prefs {
     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
     static void setQuotes(boolean on) { put("quotes", on); }
 
+    /**
+     * The home screen's background (Home Settings > Background): the default one (the picks' photo or the gradient),
+     * Bing's picture of the day (Wallpaper) or your photos (Photos, which the screensaver then shows too).
+     */
+    static final String BG_DEFAULT = "default", BG_DAY = "day", BG_PHOTOS = "photos";
+
+    static String background() {
+        String v = sp().getString("background", null);
+        if (v != null) return v;
+        // Before the one setting, photos were on unless turned off.
+        return sp().getBoolean("photos", true) ? BG_PHOTOS : BG_DEFAULT;
+    }
+
+    static void setBackground(String v) { put("background", v); }
+
+    static boolean wallpaper() { return background().equals(BG_DAY); }
+
     /** Your photos (Photos, sent from a computer) on the screensaver and behind the home screen, once imported. */
-    static boolean photos() { return sp().getBoolean("photos", true); }
-    static void setPhotos(boolean on) { put("photos", on); }
+    static boolean photos() { return background().equals(BG_PHOTOS); }
 
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }
