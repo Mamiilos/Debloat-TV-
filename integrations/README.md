@@ -2,9 +2,10 @@
 
 Інтеграція для **Android TV / Google TV**. Локальна гілка FreeMyTV:
 `codex/mainfo-dashboard`. Незалежний checkout MaInfo: `integrations/MaInfo`,
-гілка `codex/freemytv-bridge`, основа `664c39a1c2457d0ca230608452ef9b3f44fd1eb7`.
-Гілки опубліковані в `Deni7/free-my-tv` і приватному `Deni7/MaInfo` відповідно.
-На телевізор ще нічого не встановлено. Інструкція отримання оновлень оригінального
+основна гілка `main`: інтеграцію з `codex/freemytv-bridge` вже змерджено зі
+збереженням нових змін MaInfo. Код опублікований у `Deni7/free-my-tv` та
+приватному `Deni7/MaInfo` відповідно. Встановлення APK виконується окремо.
+Інструкція отримання оновлень оригінального
 FreeMyTV: [MAINTENANCE.md](../MAINTENANCE.md).
 
 ## Що реалізовано
@@ -114,7 +115,7 @@ FreeMyTV: [MAINTENANCE.md](../MAINTENANCE.md).
 Зміни MaInfo доступні в незалежному checkout `integrations/MaInfo`.
 Для іншого checkout на тій самій основі локально підготовлений `MaInfo-integration.patch`.
 Він не публікується у відкритому форку: актуальні вихідні коди MaInfo зберігаються
-у приватному `Deni7/MaInfo`, гілка `codex/freemytv-bridge`.
+у приватному `Deni7/MaInfo`, гілка `main`.
 
 ```sh
 git apply --check /path/to/FreeMyTV/integrations/MaInfo-integration.patch

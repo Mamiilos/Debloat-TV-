@@ -59,7 +59,7 @@ not install an update on the TV: build the APK and install it separately after
 checking the changes.
 
 MaInfo's companion changes are maintained in the **private** repository
-https://github.com/Deni7/MaInfo on branch **`codex/freemytv-bridge`**.
+https://github.com/Deni7/MaInfo on branch **`main`** (the integration has been merged).
 Its full sources and local delivery patch are not included in this public fork.
 See `FREEMYTV.md` in that repository for the provider contract and deployment.
 The local delivery and TV setup guide is [integrations/README.md](integrations/README.md).
