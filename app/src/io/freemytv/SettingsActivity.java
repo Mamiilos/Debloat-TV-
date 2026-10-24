@@ -180,6 +180,8 @@ public class SettingsActivity extends Activity {
         private float k = 1;
         private Paint title, subtitle, version, rowLabel, rowValue, rowSub, header, cellLabel, cellValue, warn, spinner, white, shadow;
         private TextPaint notice;
+        private final RectF heroCard = new RectF(), chipRect = new RectF();
+        private Paint cardFill, cardStroke, chipFill, chipStroke, chipText, badgeDot, statLabel, statValue;
 
         private final Runnable poll = new Runnable() {
             @Override public void run() {
@@ -343,25 +345,34 @@ public class SettingsActivity extends Activity {
             k = w / 1920f;
             scene.setSize(w, h);
             Symbols.warm(getContext(), "sparkles", 150 * k);
+            Symbols.warm(getContext(), "sparkles", 54 * k);
             Symbols.warm(getContext(), "chevron_right", 22 * k);
             Symbols.warm(getContext(), "check", 26 * k);
-            title = Ui.text(Ui.displaySemibold, 50 * k, 0xFFFFFFFF);
+            Symbols.warm(getContext(), "home", 24 * k);
+            Symbols.warm(getContext(), "settings", 24 * k);
+            Symbols.warm(getContext(), "apps", 24 * k);
+            Symbols.warm(getContext(), "play", 24 * k);
+            Symbols.warm(getContext(), "tv", 24 * k);
+            Symbols.warm(getContext(), "bedtime", 24 * k);
+            Symbols.warm(getContext(), "tv_settings", 24 * k);
+
+            title = Ui.text(Ui.displaySemibold, 44 * k, 0xFFFFFFFF);
             title.setTextAlign(Paint.Align.CENTER);
-            subtitle = Ui.text(Ui.regular, 26 * k, 0x99FFFFFF);
+            subtitle = Ui.text(Ui.regular, 24 * k, 0x99FFFFFF);
             subtitle.setTextAlign(Paint.Align.CENTER);
-            version = Ui.text(Ui.regular, 22 * k, 0x66FFFFFF);
+            version = Ui.text(Ui.medium, 18 * k, 0xB3FFFFFF);
             version.setTextAlign(Paint.Align.CENTER);
-            rowLabel = Ui.text(Ui.medium, 30 * k, 0xF2FFFFFF);
-            rowValue = Ui.text(Ui.regular, 28 * k, 0x8CFFFFFF);
+            rowLabel = Ui.text(Ui.medium, 28 * k, 0xF2FFFFFF);
+            rowValue = Ui.text(Ui.regular, 25 * k, 0x8CFFFFFF);
             rowValue.setTextAlign(Paint.Align.RIGHT);
             rowSub = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            header = Ui.text(Ui.semibold, 21 * k, 0x73FFFFFF);
-            header.setLetterSpacing(0.06f);
-            cellLabel = Ui.text(Ui.regular, 25 * k, 0xD9FFFFFF);
-            cellValue = Ui.numbers(Ui.regular, 25 * k, 0xD9FFFFFF);
+            header = Ui.text(Ui.semibold, 20 * k, 0x80FFFFFF);
+            header.setLetterSpacing(0.08f);
+            cellLabel = Ui.text(Ui.regular, 24 * k, 0xD9FFFFFF);
+            cellValue = Ui.numbers(Ui.medium, 24 * k, 0xD9FFFFFF);
             cellValue.setTextAlign(Paint.Align.RIGHT);
             warn = Ui.text(Ui.regular, 23 * k, AMBER);
-            notice = new TextPaint(Ui.text(Ui.regular, 23 * k, 0xB3FFFFFF));
+            notice = new TextPaint(Ui.text(Ui.regular, 22 * k, 0xB3FFFFFF));
             spinner = new Paint(Paint.ANTI_ALIAS_FLAG);
             spinner.setStyle(Paint.Style.STROKE);
             spinner.setStrokeCap(Paint.Cap.ROUND);
@@ -370,6 +381,27 @@ public class SettingsActivity extends Activity {
             white.setColor(0xFFF5F5F7);
             shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
             shadow.setMaskFilter(new BlurMaskFilter(22 * k, BlurMaskFilter.Blur.NORMAL));
+
+            cardFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+            cardFill.setStyle(Paint.Style.FILL);
+
+            cardStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+            cardStroke.setStyle(Paint.Style.STROKE);
+            cardStroke.setStrokeWidth(1.5f * k);
+
+            chipFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+            chipFill.setStyle(Paint.Style.FILL);
+
+            chipStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+            chipStroke.setStyle(Paint.Style.STROKE);
+            chipStroke.setStrokeWidth(1.2f * k);
+
+            chipText = Ui.text(Ui.semibold, 18 * k, 0xFFFFFFFF);
+            badgeDot = new Paint(Paint.ANTI_ALIAS_FLAG);
+            badgeDot.setStyle(Paint.Style.FILL);
+
+            statLabel = Ui.text(Ui.regular, 21 * k, 0x99FFFFFF);
+            statValue = Ui.text(Ui.semibold, 20 * k, 0xE6FFFFFF);
         }
 
         private boolean busy() {
@@ -415,15 +447,128 @@ public class SettingsActivity extends Activity {
             }
             scene.drawBackground(c);
 
-            // On the left: big symbol, title, description.
-            float cx = 500 * k;
-            Symbols.draw(getContext(), c, "sparkles", cx, 400 * k, 150 * k, 0xEBFFFFFF);
-            c.drawText("Free My TV", cx, 612 * k, title);
-            c.drawText(Ui.tr("Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
-            c.drawText(versionName(getContext()), cx, 704 * k, version);
+            // Cinematic dark frosted wash over dynamic sky
+            c.drawColor(0xC00A0D14);
+
+            // On the left: Modern Glassmorphic Hero Card
+            drawHeroCard(c, seconds);
 
             if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c);
             else drawList(c);
+        }
+
+        private void drawHeroCard(Canvas c, float seconds) {
+            heroCard.set(100 * k, 120 * k, 900 * k, 960 * k);
+            cardFill.setColor(0x14FFFFFF);
+            c.drawRoundRect(heroCard, 28 * k, 28 * k, cardFill);
+            cardStroke.setColor(0x20FFFFFF);
+            c.drawRoundRect(heroCard, 28 * k, 28 * k, cardStroke);
+
+            float cx = heroCard.centerX();
+
+            // App Emblem
+            float emblemY = heroCard.top + 46 * k;
+            float emblemSize = 96 * k;
+            chipRect.set(cx - emblemSize / 2, emblemY, cx + emblemSize / 2, emblemY + emblemSize);
+            chipFill.setColor(0x1FFFFFFF);
+            c.drawRoundRect(chipRect, 22 * k, 22 * k, chipFill);
+            chipStroke.setColor(0x33FFFFFF);
+            c.drawRoundRect(chipRect, 22 * k, 22 * k, chipStroke);
+            Symbols.draw(getContext(), c, "sparkles", cx, emblemY + emblemSize / 2, 54 * k, 0xFFFFFFFF);
+
+            // Title
+            float titleY = emblemY + emblemSize + 46 * k;
+            c.drawText("Free My TV", cx, titleY, title);
+
+            // Version Pill
+            String ver = versionName(getContext());
+            float verW = version.measureText(ver);
+            float verY = titleY + 34 * k;
+            chipRect.set(cx - verW / 2 - 16 * k, verY - 17 * k, cx + verW / 2 + 16 * k, verY + 9 * k);
+            chipFill.setColor(0x14FFFFFF);
+            c.drawRoundRect(chipRect, 11 * k, 11 * k, chipFill);
+            chipStroke.setColor(0x24FFFFFF);
+            c.drawRoundRect(chipRect, 11 * k, 11 * k, chipStroke);
+            c.drawText(ver, cx, verY, version);
+
+            // Subtitle
+            c.drawText(Ui.tr("Your TV's clean home screen and screensaver"), cx, verY + 44 * k, subtitle);
+
+            // Divider
+            float divY = verY + 70 * k;
+            c.drawLine(heroCard.left + 50 * k, divY, heroCard.right - 50 * k, divY, cardStroke);
+
+            // Status badges
+            float itemL = heroCard.left + 36 * k;
+            float itemR = heroCard.right - 36 * k;
+            float cardH = 54 * k;
+
+            // Badge 1: Launcher Status
+            float b1Y = divY + 30 * k;
+            chipRect.set(itemL, b1Y, itemR, b1Y + cardH);
+            chipFill.setColor(0x0EFFFFFF);
+            c.drawRoundRect(chipRect, 14 * k, 14 * k, chipFill);
+            chipStroke.setColor(0x18FFFFFF);
+            c.drawRoundRect(chipRect, 14 * k, 14 * k, chipStroke);
+
+            boolean active = freeActive();
+            badgeDot.setColor(active ? 0xFF34C759 : 0xFFFF9F0A);
+            c.drawCircle(itemL + 24 * k, b1Y + cardH / 2, 5.5f * k, badgeDot);
+            statLabel.setTextAlign(Paint.Align.LEFT);
+            c.drawText(active ? Ui.tr("Home Screen: Free My TV") : Ui.tr("Home Screen: Original"),
+                    itemL + 42 * k, b1Y + cardH / 2 + Ui.halfCap(statLabel), statLabel);
+            statValue.setTextAlign(Paint.Align.RIGHT);
+            c.drawText(active ? Ui.tr("ACTIVE") : Ui.tr("STANDBY"),
+                    itemR - 22 * k, b1Y + cardH / 2 + Ui.halfCap(statValue), statValue);
+
+            // Badge 2: Wallpapers
+            float b2Y = b1Y + cardH + 14 * k;
+            chipRect.set(itemL, b2Y, itemR, b2Y + cardH);
+            chipFill.setColor(0x0EFFFFFF);
+            c.drawRoundRect(chipRect, 14 * k, 14 * k, chipFill);
+            chipStroke.setColor(0x18FFFFFF);
+            c.drawRoundRect(chipRect, 14 * k, 14 * k, chipStroke);
+
+            badgeDot.setColor(Prefs.photos() ? 0xFF0A84FF : 0x80FFFFFF);
+            c.drawCircle(itemL + 24 * k, b2Y + cardH / 2, 5.5f * k, badgeDot);
+            int photoCount = Photos.files(getContext()).size();
+            String photoText = photoCount > 0 ? Ui.plural("plural|one:{n} photo|other:{n} photos", photoCount) : Ui.tr("Sky Backdrop");
+            c.drawText(photoText, itemL + 42 * k, b2Y + cardH / 2 + Ui.halfCap(statLabel), statLabel);
+            c.drawText(Prefs.photos() ? Ui.tr("ON") : Ui.tr("OFF"),
+                    itemR - 22 * k, b2Y + cardH / 2 + Ui.halfCap(statValue), statValue);
+
+            // Badge 3: Region & Inputs
+            float b3Y = b2Y + cardH + 14 * k;
+            chipRect.set(itemL, b3Y, itemR, b3Y + cardH);
+            chipFill.setColor(0x0EFFFFFF);
+            c.drawRoundRect(chipRect, 14 * k, 14 * k, chipFill);
+            chipStroke.setColor(0x18FFFFFF);
+            c.drawRoundRect(chipRect, 14 * k, 14 * k, chipStroke);
+
+            badgeDot.setColor(0xFFBF5AF2);
+            c.drawCircle(itemL + 24 * k, b3Y + cardH / 2, 5.5f * k, badgeDot);
+            String city = Prefs.city().isEmpty() ? "" : Prefs.city();
+            String unit = Prefs.temperature().equals("C") ? "°C" : Prefs.temperature().equals("F") ? "°F" : "";
+            String loc = city.isEmpty() ? (unit.isEmpty() ? Config.CURRENCY : unit + " · " + Config.CURRENCY)
+                    : (unit.isEmpty() ? city : city + " · " + unit);
+            c.drawText(loc, itemL + 42 * k, b3Y + cardH / 2 + Ui.halfCap(statLabel), statLabel);
+            String tvBrand = RemoteKeys.SONY ? "SONY" : RemoteKeys.XIAOMI ? "XIAOMI" : RemoteKeys.TCL ? "TCL"
+                    : RemoteKeys.VESTEL ? "VESTEL" : "ANDROID TV";
+            c.drawText(tvBrand, itemR - 22 * k, b3Y + cardH / 2 + Ui.halfCap(statValue), statValue);
+
+            // Badge 4: Remote Shortcuts
+            float b4Y = b3Y + cardH + 14 * k;
+            chipRect.set(itemL, b4Y, itemR, b4Y + cardH);
+            chipFill.setColor(0x0EFFFFFF);
+            c.drawRoundRect(chipRect, 14 * k, 14 * k, chipFill);
+            chipStroke.setColor(0x18FFFFFF);
+            c.drawRoundRect(chipRect, 14 * k, 14 * k, chipStroke);
+
+            badgeDot.setColor(0xFF30D158);
+            c.drawCircle(itemL + 24 * k, b4Y + cardH / 2, 5.5f * k, badgeDot);
+            c.drawText(Ui.tr("Remote Shortcuts"), itemL + 42 * k, b4Y + cardH / 2 + Ui.halfCap(statLabel), statLabel);
+            c.drawText(RemoteKeys.supported() ? Ui.tr("SUPPORTED") : Ui.tr("DEFAULT"),
+                    itemR - 22 * k, b4Y + cardH / 2 + Ui.halfCap(statValue), statValue);
         }
 
         private void drawMain(Canvas c, float seconds) {
@@ -433,6 +578,7 @@ public class SettingsActivity extends Activity {
             String[] labels = {Ui.tr("Home Screen"), Ui.tr("Screensaver"),
                     Ui.tr("Home Settings"), Ui.tr("Shelf"), Ui.tr("Top Buttons"),
                     Ui.tr("Remote Buttons"), Ui.tr("Sleep Timer"), Ui.tr("TV Settings")};
+            String[] icons = {"home", "sparkles", "settings", "apps", "play", "tv", "bedtime", "tv_settings"};
             String[] values = {working ? "" : mode, Ui.tr("Preview"), "", "", "", "", "", ""};
             for (int i = 0; i < labels.length; i++) {
                 float y = (MAIN_TOP + i * (ROW_H + MAIN_GAP)) * k;
@@ -442,8 +588,15 @@ public class SettingsActivity extends Activity {
                 int ink = off ? blend(0x73FFFFFF, 0x731C1C1E, f) : blend(0xF2FFFFFF, INK, f);
                 rowLabel.setColor(ink);
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
-                c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
-                float right = rowRect.right - 30 * k;
+
+                // Leading symbol
+                float iconCx = rowRect.left + 36 * k;
+                float textLeft = rowRect.left + 72 * k;
+                int iconColor = off ? blend(0x66FFFFFF, 0x661C1C1E, f) : blend(0xCCFFFFFF, INK, f);
+                Symbols.draw(getContext(), c, icons[i], iconCx, rowRect.centerY(), 24 * k, iconColor);
+
+                c.drawText(labels[i], textLeft, base, rowLabel);
+                float right = rowRect.right - 28 * k;
                 if (off) {
                     rowValue.setColor(blend(0x59FFFFFF, 0x591C1C1E, f));
                     c.drawText(Ui.tr("Unavailable"), right, base, rowValue);
@@ -460,12 +613,20 @@ public class SettingsActivity extends Activity {
                     spinner.setColor(blend(0xFFFFFFFF, INK, f));
                     Ui.spinner(c, sx, rowRect.centerY(), 12 * k, seconds * 1.3f, spinner);
                 } else {
-                    rowValue.setColor(blend(0x8CFFFFFF, 0x8C1C1C1E, f));
-                    c.drawText(values[i], right, base, rowValue);
+                    if (values[i] != null && !values[i].isEmpty()) {
+                        float vw = rowValue.measureText(values[i]);
+                        chipRect.set(right - vw - 24 * k, rowRect.centerY() - 15 * k, right, rowRect.centerY() + 15 * k);
+                        chipFill.setColor(blend(0x18FFFFFF, 0x14000000, f));
+                        c.drawRoundRect(chipRect, 10 * k, 10 * k, chipFill);
+                        chipStroke.setColor(blend(0x20FFFFFF, 0x18000000, f));
+                        c.drawRoundRect(chipRect, 10 * k, 10 * k, chipStroke);
+                        rowValue.setColor(blend(0xE6FFFFFF, INK, f));
+                        c.drawText(values[i], right - 12 * k, base, rowValue);
+                    }
                 }
             }
 
-            float y = (MAIN_TOP + labels.length * (ROW_H + MAIN_GAP) + 20) * k;
+            float y = (MAIN_TOP + labels.length * (ROW_H + MAIN_GAP) + 16) * k;
             String error = state.optString("error");
             if (working && busyText.equals(Ui.tr("Accept “Allow USB debugging?” on the TV (tick “Always allow”)."))) {
                 c.drawText(Ui.tr("On the TV: tick “Always allow” and press OK."),
@@ -486,14 +647,25 @@ public class SettingsActivity extends Activity {
                 y += errorLayout.getLineBaseline(errorLayout.getLineCount() - 1) - errorLayout.getLineBaseline(0) + 46 * k;
             }
             y = drawComparison(c, y);
-            y = drawRecs(c, y + 26 * k);
-            drawNotices(c, y + 40 * k);
+            y = drawRecs(c, y + 16 * k);
+            drawNotices(c, y + 16 * k);
         }
 
         /** Home screen picks: status, and the credit TMDB asks for. */
         private float drawRecs(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k;
-            c.drawText(Ui.tr("RECOMMENDATIONS"), x, y, header);
+            float cardL = LIST_X * k, cardR = LIST_R * k;
+            float cardTop = y;
+            float cardH = (Config.WATCHMODE_KEY.trim().isEmpty() ? 104 : 130) * k;
+            float cardBottom = cardTop + cardH;
+            chipRect.set(cardL, cardTop, cardR, cardBottom);
+            cardFill.setColor(0x0EFFFFFF);
+            c.drawRoundRect(chipRect, 16 * k, 16 * k, cardFill);
+            cardStroke.setColor(0x18FFFFFF);
+            c.drawRoundRect(chipRect, 16 * k, 16 * k, cardStroke);
+
+            float x = cardL + 24 * k;
+            float headY = cardTop + 30 * k;
+            c.drawText(Ui.tr("RECOMMENDATIONS"), x, headY, header);
             String line;
             String error = recs.optString("error");
             int count = recs.optInt("count");
@@ -503,29 +675,39 @@ public class SettingsActivity extends Activity {
             else if (!error.isEmpty()) line = Ui.trf("Error: {error}.", "error", error);
             else if (count > 0) line = Ui.trf("On · {n} titles from the TV's apps, 3 new ones every hour.", "n", count);
             else line = Ui.tr("Fetching titles…");
-            c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
+            c.drawText(TextUtils.ellipsize(line, notice, 740 * k, TextUtils.TruncateAt.END).toString(), x, headY + 30 * k, notice);
             version.setTextAlign(Paint.Align.LEFT);
-            c.drawText(Ui.tr("This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 78 * k, version);
+            c.drawText(Ui.tr("This product uses the TMDB API but is not endorsed or certified by TMDB."), x, headY + 56 * k, version);
             if (!Config.WATCHMODE_KEY.trim().isEmpty()) {
-                c.drawText(Ui.tr("Links to the titles by Watchmode."), x, y + 108 * k, version);
+                c.drawText(Ui.tr("Links to the titles by Watchmode."), x, headY + 80 * k, version);
             }
             version.setTextAlign(Paint.Align.CENTER);
-            return y + (Config.WATCHMODE_KEY.trim().isEmpty() ? 78 : 108) * k;
+            return cardBottom;
         }
 
-        /** List row: no background; focused, white with a shadow (the Apple TV focus). Returns how focused it is. */
+        /** List row: sleek frosted card; focused, luminous white with smooth spring lift. */
         private float drawRowBackground(Canvas c, int i) {
             float f = Ui.clamp(pop[i].value);
+            float cx = rowRect.centerX(), cy = rowRect.centerY();
+            float s = 1 + 0.025f * f;
+            tmp.set(cx - rowRect.width() * s / 2, cy - rowRect.height() * s / 2,
+                    cx + rowRect.width() * s / 2, cy + rowRect.height() * s / 2);
+            float r = 16 * k * s;
+
+            if (f < 0.99f) {
+                cardFill.setColor(0x12FFFFFF);
+                c.drawRoundRect(rowRect, 16 * k, 16 * k, cardFill);
+                cardStroke.setColor(Ui.alpha(0x1AFFFFFF, 1f - f));
+                c.drawRoundRect(rowRect, 16 * k, 16 * k, cardStroke);
+            }
+
             if (f > 0.01f) {
-                float s = 1 + 0.02f * f;
-                float cx = rowRect.centerX(), cy = rowRect.centerY();
-                tmp.set(cx - rowRect.width() * s / 2, cy - rowRect.height() * s / 2, cx + rowRect.width() * s / 2, cy + rowRect.height() * s / 2);
-                float r = 18 * k * s;
-                tmp.offset(0, 10 * k * f);
-                shadow.setColor(Ui.alpha(0xFF000000, 0.4f * f));
+                tmp.offset(0, 8 * k * f);
+                shadow.setColor(Ui.alpha(0xFF000000, 0.45f * f));
                 c.drawRoundRect(tmp, r, r, shadow);
-                tmp.offset(0, -10 * k * f);
-                white.setAlpha(Math.round(255 * f));
+                tmp.offset(0, -8 * k * f);
+
+                white.setColor(blend(0x18FFFFFF, 0xFFFFFFFF, f));
                 c.drawRoundRect(tmp, r, r, white);
                 rowRect.set(tmp);
             }
@@ -533,39 +715,61 @@ public class SettingsActivity extends Activity {
         }
 
         private float drawComparison(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k, colA = LIST_R * k - 220 * k, colB = LIST_R * k - 30 * k;
-            c.drawText(Ui.tr("COMPARISON"), x, y, header);
+            float cardL = LIST_X * k, cardR = LIST_R * k;
+            float cardTop = y;
+            float cardBottom = cardTop + 160 * k;
+            chipRect.set(cardL, cardTop, cardR, cardBottom);
+            cardFill.setColor(0x0EFFFFFF);
+            c.drawRoundRect(chipRect, 16 * k, 16 * k, cardFill);
+            cardStroke.setColor(0x18FFFFFF);
+            c.drawRoundRect(chipRect, 16 * k, 16 * k, cardStroke);
+
+            float x = cardL + 24 * k, colA = cardR - 200 * k, colB = cardR - 24 * k;
+            float headY = cardTop + 30 * k;
+            c.drawText(Ui.tr("PERFORMANCE COMPARISON"), x, headY, header);
             cellValue.setColor(0x73FFFFFF);
-            c.drawText(Ui.tr("Original"), colA, y, cellValue);
-            c.drawText("Free My TV", colB, y, cellValue);
+            c.drawText(Ui.tr("Original"), colA, headY, cellValue);
+            cellValue.setColor(0xFF34C759);
+            c.drawText("Free My TV", colB, headY, cellValue);
             cellValue.setColor(0xD9FFFFFF);
+
             JSONObject metrics = state.optJSONObject("metrics");
             JSONObject a = metrics == null ? null : metrics.optJSONObject(HomeMode.ORIGINAL);
             JSONObject b = metrics == null ? null : metrics.optJSONObject(HomeMode.FREE);
             String[][] rows = {{Ui.tr("Home button"), "homeMs"}, {Ui.tr("Free memory"), "memAvailableMB"},
                     {Ui.tr("Home screen memory"), "homePssMB"}};
             for (int i = 0; i < rows.length; i++) {
-                float base = y + (46 + 40 * i) * k;
+                float base = headY + (36 + 32 * i) * k;
                 c.drawText(rows[i][0], x, base, cellLabel);
                 c.drawText(metric(a, rows[i][1]), colA, base, cellValue);
                 c.drawText(metric(b, rows[i][1]), colB, base, cellValue);
             }
-            return y + (46 + 40 * rows.length) * k;
+            return cardBottom;
         }
 
         private void drawNotices(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k;
-            c.drawText(Ui.tr("NOTICES"), x, y, header);
+            float cardL = LIST_X * k, cardR = LIST_R * k;
+            float cardTop = y;
+            float cardBottom = cardTop + 100 * k;
+            chipRect.set(cardL, cardTop, cardR, cardBottom);
+            cardFill.setColor(0x0EFFFFFF);
+            c.drawRoundRect(chipRect, 16 * k, 16 * k, cardFill);
+            cardStroke.setColor(0x18FFFFFF);
+            c.drawRoundRect(chipRect, 16 * k, 16 * k, cardStroke);
+
+            float x = cardL + 24 * k;
+            float headY = cardTop + 30 * k;
+            c.drawText(Ui.tr("SYSTEM NOTICES"), x, headY, header);
             JSONArray notices = state.optJSONArray("notices");
             int shown = 0;
             for (int i = 0; notices != null && i < notices.length() && shown < 2; i++) {
                 JSONObject o = notices.optJSONObject(i);
                 if (o == null) continue;
                 String line = ago(o.optLong("at")) + " · " + o.optString("text");
-                c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + (42 + 38 * shown) * k, notice);
+                c.drawText(TextUtils.ellipsize(line, notice, 740 * k, TextUtils.TruncateAt.END).toString(), x, headY + (28 + 26 * shown) * k, notice);
                 shown++;
             }
-            if (shown == 0) c.drawText(Ui.tr("None yet."), x, y + 42 * k, notice);
+            if (shown == 0) c.drawText(Ui.tr("None yet."), x, headY + 28 * k, notice);
         }
 
         /** Home screen choice: Free My TV or the original, with a check on the one in use. */
@@ -912,10 +1116,10 @@ public class SettingsActivity extends Activity {
             if (RemoteKeys.KTC) return new String[] {Ui.tr("Tabii button")};
             if (RemoteKeys.XIAOMI) return new String[] {Ui.tr("Mi button"), Ui.tr("Okko button"), Ui.tr("VK button"),
                     Ui.tr("Rutube button"), Ui.tr("KION button"), Ui.tr("Wink button"), Ui.tr("IVI button")};
-            if (RemoteKeys.SONY) return new String[] {Ui.tr("BRAVIA CORE button"),
-                    Ui.tr("Netflix button"), Ui.tr("Disney+ button"),
+            if (RemoteKeys.SONY) return new String[] {Ui.tr("Sony LIV / CORE button"),
+                    Ui.tr("Netflix button"), Ui.tr("Hotstar / Disney+ button"),
                     Ui.tr("Prime Video button"), Ui.tr("YouTube button"),
-                    Ui.tr("Crunchyroll button"), Ui.tr("Google Play button")};
+                    Ui.tr("Music / Crunchyroll button"), Ui.tr("Google Play button")};
             return new String[] {Ui.tr("Netflix button"), Ui.tr("YouTube button"),
                     Ui.tr("Prime Video button"), Ui.tr("TCL Channel button")};
         }
@@ -1263,7 +1467,20 @@ public class SettingsActivity extends Activity {
                 if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[from + i], rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(values[from + i], rowRect.right - 30 * k, base, rowValue);
+                float right = rowRect.right - 30 * k;
+                String val = values[from + i];
+                if (!locked && val != null && !val.isEmpty()) {
+                    float vw = rowValue.measureText(val);
+                    chipRect.set(right - vw - 22 * k, rowRect.centerY() - 16 * k, right, rowRect.centerY() + 16 * k);
+                    chipFill.setColor(blend(0x18FFFFFF, 0x14000000, f));
+                    c.drawRoundRect(chipRect, 10 * k, 10 * k, chipFill);
+                    chipStroke.setColor(blend(0x20FFFFFF, 0x18000000, f));
+                    c.drawRoundRect(chipRect, 10 * k, 10 * k, chipStroke);
+                    rowValue.setColor(blend(0xE6FFFFFF, INK, f));
+                    c.drawText(val, right - 11 * k, base, rowValue);
+                } else {
+                    c.drawText(val, right, base, rowValue);
+                }
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * pitch + 36) * k;
