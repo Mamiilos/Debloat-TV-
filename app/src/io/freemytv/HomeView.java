@@ -75,6 +75,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float TILE_RADIUS = 22;
     // Tile focus (Apple TV style): it grows from the center and its shadow drops (it "rises" toward the viewer).
     private static final float FOCUS_GROW = 0.2f;
+    private static final float GLOW = 0.3f, GLOW_DROP = 0.6f;   // light shadow on dark glass: strength, drop per blur
     // Corner capsule.
     // Corner capsule: the height and top offset of the tvOS tab bar (68 and 46).
     private static final float CAPSULE_TOP = 46, CAPSULE_H = 68, BUTTON = 56;
@@ -264,6 +265,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint shadowSoft = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint shadowDeep = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private float glowBlur;   // the focused app's light shadow on dark glass: as big as the glass's padding allows
     private final Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Shadows shadows = new Shadows();
     private final Paint imageFill = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -1270,6 +1273,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float top = (L_PLATTER_TOP + L_TILE_H) * k - th;
         platterRect.set(left - pad, top, left + width + pad, top + th + 2 * pad);
         snap(platterRect);
+        // The focused app's deep shadow in light, scaled down to fit the glass's padding: it spreads ~1.8 blurs past the
+        // tile and drops GLOW_DROP blurs (the deep shadow drops 18 px for its 30 px blur), all grown with the tile.
+        float grown = 1 + FOCUS_GROW, room = pad - FOCUS_GROW * tw / 2;
+        float below = pad - FOCUS_GROW * th / 2;
+        float blur = Math.max(1, Math.min(room / (1.8f * grown), below / ((1.8f + GLOW_DROP) * grown)));
+        if (blur != glowBlur) {
+            glowBlur = blur;
+            glowPaint.setMaskFilter(new BlurMaskFilter(blur, BlurMaskFilter.Blur.NORMAL));
+        }
         shelfFirst = Math.max(0, Math.min(shelfFirst, shelf.size() - n));
         float x = left - shelfFirst * (tw + gap), y = top + pad;
         for (int i = 0; i < shelf.size(); i++) {
@@ -1514,6 +1526,19 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tmp.offset(0, (4 + 14 * f + 6 * l) * k);
         shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.3f) + tone(0.18f, 0.3f) * fc + 0.14f * Ui.clamp(l)));
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
+        // On dark glass that shadow is lost: the focused app casts it in light too, smaller, within the glass (not while
+        // it's lifted to be moved: it grows past what the glow was sized for, and has a deeper shadow then).
+        float glow = fc * dark() * (1 - Ui.clamp(l));
+        if (glow > 0.01f) {
+            tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+            tmp.offset(0, GLOW_DROP * glowBlur * f);
+            glowPaint.setColor(Ui.alpha(0xFFFFFFFF, GLOW * glow));
+            // Not dithered: stretched, the pattern's one-pixel edge slices show as stripes in a light shadow.
+            boolean dither = shadows.dither;
+            shadows.dither = false;
+            shadows.draw(c, tmp, r0, glowBlur, glowPaint);
+            shadows.dither = dither;
+        }
         c.restore();
         int[] style = TILE_STYLE.get(it.key);
         if (it.logo != null && style != null) {

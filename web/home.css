@@ -391,7 +391,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .tile.focus { -webkit-transform: scale(1.2); transform: scale(1.2); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34); z-index: 2; }
 .tile.focus::after { opacity: 1; }
 .night .tile { box-shadow: 0 4px 22px rgba(0, 0, 0, 0.3); }
-.night .tile.focus { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6); }
+/* The black shadow is lost on the dark glass: the same shadow in light too, small enough to stay inside the glass with
+   the widest tiles (HomeView's glow; old TVs have no CSS variables to size it per shelf). */
+.night .tile.focus { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6), 0 5px 14px rgba(255, 255, 255, 0.3); }
 .more { position: absolute; width: 17px; height: 17px; color: rgba(0, 0, 0, 0.6); }
 .more.back { -webkit-transform: scaleX(-1); transform: scaleX(-1); }
 .night .more { color: rgba(255, 255, 255, 0.8); }
