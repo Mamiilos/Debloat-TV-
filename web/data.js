@@ -112,7 +112,7 @@ var Data = (function () {
       sunrise: localTime(o.daily.sunrise[0], off), sunset: localTime(o.daily.sunset[0], off), hours: []
     };
     var hr = o.hourly;
-    for (var i = 0; hr && i < hr.time.length && w.hours.length < 6; i++) {
+    for (var i = 0; hr && i < hr.time.length && w.hours.length < 8; i++) {
       var at = localTime(hr.time[i], off);
       if (at <= now) continue;
       w.hours.push({at: at, temp: hr.temperature_2m[i], code: hr.weather_code[i], day: !hr.is_day || hr.is_day[i] !== 0});

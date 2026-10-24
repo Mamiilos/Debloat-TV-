@@ -80,7 +80,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   -webkit-transition: -webkit-transform 0.38s cubic-bezier(0.32, 0.72, 0.2, 1), opacity 0.28s;
   transition: transform 0.38s cubic-bezier(0.32, 0.72, 0.2, 1), opacity 0.28s;
 }
-.drawer-open #home { -webkit-transform: translateY(-560px); transform: translateY(-560px); }
+.drawer-open #home { -webkit-transform: translateY(-1080px); transform: translateY(-1080px); }
 #top { -webkit-transition: opacity 0.2s; transition: opacity 0.2s; }
 .drawer-open #top { opacity: 0; }
 #drawer { -webkit-transform: translateY(560px); transform: translateY(560px); opacity: 0; }
@@ -88,6 +88,10 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 /* Closed, it still spans the screen below the shelf: only its keys take the pointer, and only when it's open. */
 #drawer { pointer-events: none; }
 .drawer-open #drawer .key { pointer-events: auto; }
+/* Two screens, one under the other: the inputs and shortcuts; ↓ again scrolls a screen on, to the weather and prices. */
+.drawer-deep #drawer { -webkit-transform: translateY(-1080px); transform: translateY(-1080px); }
+.drawer-open #drawer .hint-down, .drawer-deep #drawer .hint-up { pointer-events: auto; }
+.drawer-deep #drawer .key, .drawer-deep #drawer .hint-down { pointer-events: none; }
 
 /* MARK: - Title and tabs */
 
@@ -133,25 +137,23 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .night .tab { color: rgba(245, 245, 247, 0.62); }
 .night .tab.focus { color: #1D1D1F; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4); }
 
-/* Crypto quotes at the right end of the tab row: a quiet detail. */
-#quotes {
+/* The time and date, always up at the left of the round buttons (the big clock takes over without picks). */
+#now {
   position: absolute;
-  right: 80px;
-  top: 178px;
-  height: 28px;
-  font-size: 21px;
-  line-height: 28px;
-  color: #8E8E93;
+  right: 360px;
+  top: 67px;
+  text-align: right;
   white-space: nowrap;
-  -webkit-transition: opacity 0.17s;
-  transition: opacity 0.17s;
+  color: #1D1D1F;
   font-feature-settings: 'tnum';
+  -webkit-transition: color 2s;
+  transition: color 2s;
 }
-#quotes .q { display: inline-block; margin-left: 24px; }
-#quotes svg { width: 15px; height: 15px; vertical-align: -1px; margin-right: 6px; fill: rgba(142, 142, 147, 0.7); }
-#quotes.hide { opacity: 0; }
-.night #quotes { color: rgba(245, 245, 247, 0.62); }
-.night #quotes svg { fill: rgba(245, 245, 247, 0.55); }
+#now .time { display: block; font-size: 46px; font-weight: 300; line-height: 46px; letter-spacing: -0.01em; }
+#now .date { display: block; margin-top: 2px; font-size: 21px; font-weight: 500; line-height: 24px; color: #6E6E73; }
+.no-picks #now { display: none; }
+.night #now { color: #F5F5F7; }
+.night #now .date { color: rgba(245, 245, 247, 0.62); }
 
 /* Live TV, HDMI Inputs and Settings: glass circles; the focused one turns white, with its name below. */
 .round {
@@ -362,7 +364,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* MARK: - Drawer: inputs and shortcuts, weather, prices */
 
-.row-title { position: absolute; top: 494px; font-size: 25px; font-weight: 600; color: #6E6E73; white-space: nowrap; }
+.row-title { position: absolute; left: 84px; font-size: 30px; font-weight: 600; color: #6E6E73; white-space: nowrap; }
 .night .row-title { color: rgba(255, 255, 255, 0.7); }
 
 .glass {
@@ -386,46 +388,70 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   -webkit-transition: -webkit-transform 0.19s cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 0.19s, background-color 0.14s;
   transition: transform 0.19s cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 0.19s, background-color 0.14s;
 }
-.key .sym { position: absolute; left: 50%; top: 33px; width: 34px; height: 34px; margin-left: -17px; }
-.key .label { position: absolute; left: 8px; right: 8px; top: 82px; font-size: 23px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.key .sym { position: absolute; left: 50%; top: 40%; width: 56px; height: 56px; margin: -28px 0 0 -28px; }
+.key .label { position: absolute; left: 12px; right: 12px; bottom: 30px; font-size: 28px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .key.off { color: #8E8E93; }
 .key.focus { background: #F5F5F7; color: #1C1C1E; -webkit-transform: scale(1.07); transform: scale(1.07); box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42); z-index: 2; }
 .night .key { color: rgba(255, 255, 255, 0.95); }
 .night .key.off { color: rgba(255, 255, 255, 0.42); }
 .night .key.focus { color: #1C1C1E; }
 
-.panel { position: absolute; top: 708px; height: 300px; border-radius: 30px; overflow: hidden; color: #1D1D1F; }
+.panel { position: absolute; left: 80px; width: 1760px; border-radius: 34px; overflow: hidden; color: #1D1D1F; }
 .night .panel { color: #F5F5F7; }
-.panel .head { position: absolute; left: 34px; top: 30px; font-size: 25px; font-weight: 600; color: #6E6E73; white-space: nowrap; }
-.panel .side { position: absolute; right: 34px; top: 33px; font-size: 21px; font-weight: 500; color: #8E8E93; white-space: nowrap; }
+/* The way between the levels: "⌄ Weather · Crypto" under the inputs, "⌃ Inputs" over the weather. */
+#drawer .hint {
+  left: 0;
+  width: 1920px;
+  height: 40px;
+  border-radius: 0;
+  overflow: visible;
+  text-align: center;
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 40px;
+  color: #6E6E73;
+  white-space: nowrap;
+}
+#drawer .hint .sym { display: inline-block; position: relative; vertical-align: -6px; margin-right: 8px; }
+#drawer .hint-down { top: 960px; }
+#drawer .hint-up { top: 1140px; }
+#drawer .hint-up .sym { -webkit-transform: rotate(180deg); transform: rotate(180deg); }
+.night #drawer .hint { color: rgba(255, 255, 255, 0.7); }
+.panel .head { position: absolute; left: 40px; top: 34px; font-size: 28px; font-weight: 600; color: #6E6E73; white-space: nowrap; }
+.panel .side { position: absolute; right: 40px; top: 38px; font-size: 23px; font-weight: 500; color: #8E8E93; white-space: nowrap; }
 .night .panel .head { color: rgba(255, 255, 255, 0.7); }
 .night .panel .side { color: rgba(255, 255, 255, 0.6); }
 
-#weather .now { position: absolute; left: 34px; top: 82px; height: 100px; white-space: nowrap; }
-#weather .now .sym { width: 56px; height: 56px; vertical-align: 12px; margin-right: 18px; }
-#weather .now .temp { font-size: 100px; font-weight: 300; line-height: 100px; font-feature-settings: 'tnum'; }
-#weather .cond { position: absolute; left: 34px; top: 192px; font-size: 29px; font-weight: 500; white-space: nowrap; }
-#weather .range { position: absolute; left: 34px; top: 236px; font-size: 23px; font-weight: 500; color: #6E6E73; white-space: nowrap; font-feature-settings: 'tnum'; }
-#weather .split { position: absolute; left: 391px; top: 34px; bottom: 34px; width: 2px; background: rgba(0, 0, 0, 0.1); }
-#weather .hours { position: absolute; left: 422px; right: 30px; top: 74px; height: 140px; }
+#weather { height: 420px; }
+#weather .now { position: absolute; left: 40px; top: 104px; height: 150px; white-space: nowrap; }
+#weather .now .sym { width: 84px; height: 84px; vertical-align: 22px; margin-right: 24px; }
+#weather .now .temp { font-size: 150px; font-weight: 300; line-height: 150px; font-feature-settings: 'tnum'; }
+#weather .cond { position: absolute; left: 40px; top: 284px; font-size: 36px; font-weight: 500; white-space: nowrap; }
+#weather .range { position: absolute; left: 40px; top: 338px; font-size: 28px; font-weight: 500; color: #6E6E73; white-space: nowrap; font-feature-settings: 'tnum'; }
+#weather .split { position: absolute; left: 560px; top: 40px; bottom: 40px; width: 2px; background: rgba(0, 0, 0, 0.1); }
+#weather .hours { position: absolute; left: 600px; right: 40px; top: 96px; height: 200px; }
 #weather .hour { position: absolute; top: 0; text-align: center; font-feature-settings: 'tnum'; }
-#weather .hour .t { font-size: 22px; font-weight: 500; color: #6E6E73; }
-#weather .hour .sym { display: block; width: 30px; height: 30px; margin: 22px auto 18px; }
-#weather .hour .d { font-size: 26px; font-weight: 500; }
-#weather .sun { position: absolute; left: 422px; top: 236px; font-size: 23px; font-weight: 500; color: #6E6E73; white-space: nowrap; }
-#weather .sun .sym { width: 22px; height: 22px; vertical-align: -3px; margin-right: 10px; }
+#weather .hour .t { font-size: 26px; font-weight: 500; color: #6E6E73; }
+#weather .hour .sym { display: block; width: 48px; height: 48px; margin: 26px auto 22px; }
+#weather .hour .d { font-size: 36px; font-weight: 500; }
+#weather .sun { position: absolute; left: 600px; top: 338px; font-size: 28px; font-weight: 500; color: #6E6E73; white-space: nowrap; }
+#weather .sun .sym { width: 28px; height: 28px; vertical-align: -4px; margin-right: 12px; }
 #weather .sun span { margin-right: 36px; }
 .night #weather .range, .night #weather .hour .t, .night #weather .sun { color: rgba(255, 255, 255, 0.68); }
 .night #weather .split { background: rgba(255, 255, 255, 0.14); }
 
-#prices .coin { position: absolute; left: 34px; right: 34px; height: 40px; font-size: 29px; font-weight: 500; white-space: nowrap; }
-#prices .coin svg { position: absolute; left: 2px; top: 6px; width: 26px; height: 26px; fill: #6E6E73; }
-#prices .coin .n { position: absolute; left: 50px; top: 0; }
-#prices .coin .p { position: absolute; right: 128px; top: 1px; font-size: 26px; font-feature-settings: 'tnum'; }
-#prices .coin .c { position: absolute; right: 0; top: 2px; width: 108px; height: 34px; line-height: 34px; border-radius: 17px; text-align: center; font-size: 21px; font-weight: 600; font-feature-settings: 'tnum'; }
+#prices { height: 380px; }
+/* A column per coin: the name, the price large, the 24-hour change. */
+#prices .coin { position: absolute; top: 116px; height: 220px; font-size: 32px; font-weight: 500; white-space: nowrap; }
+#prices .coin + .coin::before { content: ''; position: absolute; left: -16px; top: 4px; bottom: 4px; width: 2px; background: rgba(0, 0, 0, 0.08); }
+#prices .coin svg { position: absolute; left: 0; top: 6px; width: 30px; height: 30px; fill: #6E6E73; }
+#prices .coin .n { position: absolute; left: 46px; top: 0; }
+#prices .coin .p { position: absolute; left: 0; top: 70px; font-size: 54px; font-weight: 300; font-feature-settings: 'tnum'; }
+#prices .coin .c { position: absolute; left: 0; top: 168px; width: 140px; height: 42px; line-height: 42px; border-radius: 21px; text-align: center; font-size: 24px; font-weight: 600; font-feature-settings: 'tnum'; }
 #prices .up { color: #248A3D; background: rgba(36, 138, 61, 0.2); }
 #prices .down { color: #D70015; background: rgba(215, 0, 21, 0.2); }
 .night #prices .coin svg { fill: rgba(255, 255, 255, 0.8); }
+.night #prices .coin + .coin::before { background: rgba(255, 255, 255, 0.12); }
 .night #prices .up { color: #30D158; background: rgba(48, 209, 88, 0.2); }
 .night #prices .down { color: #FF453A; background: rgba(255, 69, 58, 0.2); }
 

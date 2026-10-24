@@ -1,9 +1,10 @@
 /*
  * The home screen for web-app TVs (LG webOS, Samsung Tizen), with the Android app's design and behavior (HomeView):
  *  - top: the "For You" title and the tabs (Explore, Movies, Shows); icon-only glass buttons at the right (Live TV,
- *    HDMI Inputs, Settings) and the crypto quotes at the end of the tab row;
+ *    HDMI Inputs, Weather and Prices, Settings);
  *  - three picks for this hour in the selected tab; the background is the first one's photo, blurred and almost white;
- *  - the glass shelf with the apps; ↓ opens the drawer (inputs, shortcuts, weather, prices); ↑ or Back closes it;
+ *  - the glass shelf with the apps; ↓ opens the drawer (inputs and shortcuts), ↓ again scrolls it to the weather and
+ *    prices; ↑ goes back up, Back closes it;
  *  - a night look from sunset to sunrise; a screensaver after a few idle minutes.
  * The remote's arrows, OK and Back move the focus; a pointer (LG's Magic Remote) focuses what it points at.
  */
@@ -277,7 +278,7 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang'};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', INFO: 'info', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang'};
   var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0};
   var cards = [];
 
@@ -292,7 +293,6 @@
     }
     list = $('buttons').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
-    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
     list = $('cards').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
     list = $('tiles').children;
@@ -308,7 +308,8 @@
     focusRows($('shelfedit'), st.edit, st.zone === Z.EDIT);
     focusRows($('langpick'), st.lang, st.zone === Z.LANG);
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
-    setClass(body, 'drawer-open', st.zone === Z.DRAWER);
+    setClass(body, 'drawer-open', st.zone === Z.DRAWER || st.zone === Z.INFO);
+    setClass(body, 'drawer-deep', st.zone === Z.INFO);
   }
 
   function focusRows(sheet, index, on) {
@@ -335,7 +336,7 @@
     return (r.left + r.right) / 2;
   }
 
-  // MARK: - Top: title, tabs, buttons, quotes
+  // MARK: - Top: title, tabs, buttons
 
   var TAB_KIND = [null, 'movie', 'tv'];
 
@@ -348,26 +349,43 @@
       var t = el('button', 'tab', tabs, names[i]);
       hover(t, Z.TOP, i);
     }
-    var buttons = $('buttons');
-    buttons.innerHTML = '';
-    var defs = [['live_tv', tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')], ['settings', tr('light|Settings')]];
-    for (var b = 0; b < 3; b++) {
-      var r = el('button', 'round' + (b === 2 ? ' last' : ''), buttons);
-      r.style.left = (1596 + 88 * b) + 'px';
-      sym(defs[b][0], r);
-      el('div', 'tip', r, defs[b][1]);
-      hover(r, Z.TOP, 3 + b);
-    }
+    renderButtons();
   }
 
-  function renderQuotes() {
-    var q = $('quotes'), coins = Data.activeCoins();
-    q.innerHTML = '';
-    for (var i = 0; i < coins.length; i++) {
-      var item = el('span', 'q', q);
-      coin(coins[i], item);
-      el('span', '', item, Data.compact(Data.prices[coins[i]]));
+  /** The round buttons at the top right: [symbol, name, what OK does]. */
+  var topButtons = [], builtInfo = null;
+
+  /** Built again when the weather or the prices are turned on or off (renderPanels), so the button follows them. */
+  function renderButtons() {
+    builtInfo = infoLabel();
+    var buttons = $('buttons');
+    buttons.innerHTML = '';
+    topButtons = [
+      ['live_tv', tr('light|Live TV'), function () { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }],
+      ['hdmi', tr('HDMI Inputs'), function () { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }]
+    ];
+    if (builtInfo) topButtons.push(['partly_cloudy_day', infoLabel(), function () { st.zone = Z.SHELF; openDrawer(); openInfo(); }]);
+    topButtons.push(['settings', tr('light|Settings'), openSettings]);
+    var n = topButtons.length, first = 1772 - 88 * (n - 1);
+    for (var b = 0; b < n; b++) {
+      var r = el('button', 'round' + (b === n - 1 ? ' last' : ''), buttons);
+      r.style.left = (first + 88 * b) + 'px';
+      sym(topButtons[b][0], r);
+      el('div', 'tip', r, topButtons[b][1]);
+      hover(r, Z.TOP, 3 + b);
     }
+    $('now').style.right = (1920 - first + 36) + 'px';
+    st.top = Math.min(st.top, 2 + n);
+  }
+
+  /** The drawer's second level, under the inputs: the weather and the prices, when either is on. */
+  function hasInfo() { return Prefs.weather() || Data.activeCoins().length > 0; }
+
+  function infoLabel() {
+    var parts = [];
+    if (Prefs.weather()) parts.push(tr('Weather'));
+    if (Data.activeCoins().length) parts.push(tr('Crypto'));
+    return parts.join(' · ');
   }
 
   // MARK: - Picks and background
@@ -423,9 +441,13 @@
   }
 
   function renderClock() {
-    var d = new Date(), c = $('clock');
-    c.firstChild.textContent = formatDate('format|h:mm', d.getTime());
-    c.lastChild.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
+    var at = Date.now(), time = formatDate('format|h:mm', at), date = formatDate('format|EEEE, MMMM d', at);
+    var ids = ['clock', 'now'];
+    for (var i = 0; i < ids.length; i++) {
+      var c = $(ids[i]);
+      c.firstChild.textContent = time;
+      c.lastChild.textContent = date;
+    }
   }
 
   /** On the minute, so the clock never runs late (the 30-second refresh could, by up to 30 s). */
@@ -449,7 +471,6 @@
     platter.style.width = (width + 2 * pad) + 'px';
     platter.style.top = (814 + 126 - th) + 'px';
     platter.style.height = (th + 2 * pad) + 'px';
-    $('quotes').style.right = (1920 - left - width) + 'px';
     var tiles = $('tiles');
     tiles.innerHTML = '';
     tileStep = tw + gap;
@@ -516,22 +537,25 @@
     drawerItems.push({label: tr('All Apps'), symbol: 'apps', run: openApps});
     drawerItems.push({label: tr('Home Settings'), symbol: 'settings', run: openSettings});
     drawerItems.push({label: tr('TV Settings'), symbol: 'tv_settings', run: tvSettings});
-    var n = drawerItems.length, gap = 18, groupGap = 56, groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
-    var tw = Math.min(230, (1760 - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n));
-    var xPos = 80;
-    for (var k = 0; k < n; k++) {
-      if (k === drawerInputs && k > 0) {
-        xPos += groupGap - gap;
-        el('div', 'row-title', d, tr('Shortcuts')).style.left = (xPos + 4) + 'px';
+    // A screen of its own: the inputs in big keys at the top, the shortcuts in a row under them.
+    var rows = [[0, drawerInputs, tr('Inputs')], [drawerInputs, drawerItems.length, tr('Shortcuts')]];
+    var tops = [[170, 220, 260], [570, 620, 220]], gap = 24, r = 0;
+    for (var g = 0; g < rows.length; g++) {
+      var from = rows[g][0], to = rows[g][1], count = to - from;
+      if (!count) continue;
+      var tw = Math.min(600, (1760 - (count - 1) * gap) / count);   // each row spans the width
+      el('div', 'row-title', d, rows[g][2]).style.top = tops[r][0] + 'px';
+      for (var k = from; k < to; k++) {
+        var item = drawerItems[k], key = el('div', 'key glass' + (item.off ? ' off' : ''), d);
+        key.style.left = (80 + (k - from) * (tw + gap)) + 'px';
+        key.style.top = tops[r][1] + 'px';
+        key.style.width = tw + 'px';
+        key.style.height = tops[r][2] + 'px';
+        sym(item.symbol, key);
+        el('div', 'label', key, item.label);
+        hover(key, Z.DRAWER, k);
       }
-      if (k === 0 && drawerInputs) el('div', 'row-title', d, tr('Inputs')).style.left = '84px';
-      var item = drawerItems[k], key = el('div', 'key glass' + (item.off ? ' off' : ''), d);
-      key.style.left = xPos + 'px';
-      key.style.width = tw + 'px';
-      sym(item.symbol, key);
-      el('div', 'label', key, item.label);
-      hover(key, Z.DRAWER, k);
-      xPos += tw + gap;
+      r++;
     }
     renderPanels();
     updateFocus();
@@ -541,23 +565,31 @@
     var d = $('drawer');
     var old = d.querySelectorAll('.panel');
     for (var o = 0; o < old.length; o++) d.removeChild(old[o]);
+    if (infoLabel() !== builtInfo) { renderButtons(); updateFocus(); }
     var wx = Prefs.weather(), coins = Data.activeCoins(), qt = coins.length > 0;
-    var split = 80 + 1760 * 0.585;
+    // The second screen, right under the first (the drawer scrolls up a whole screen): one panel over the other.
     if (wx) {
       var w = el('div', 'panel glass', d);
       w.id = 'weather';
-      w.style.left = '80px';
-      w.style.width = ((qt ? split - 16 : 1840) - 80) + 'px';
+      w.style.top = (1080 + (qt ? 140 : 330)) + 'px';
       renderWeather(w);
     }
     if (qt) {
       var q = el('div', 'panel glass', d);
       q.id = 'prices';
-      var left = wx ? split + 16 : 80;
-      q.style.left = left + 'px';
-      q.style.width = (1840 - left) + 'px';
+      q.style.top = (1080 + (wx ? 600 : 340)) + 'px';
       renderPrices(q, coins);
     }
+    if (!wx && !qt) return;
+    // ↓ and ↑ between the two levels, also for the pointer.
+    var down = el('div', 'panel hint hint-down', d);
+    sym('chevron_down', down, 26);
+    down.appendChild(document.createTextNode(infoLabel()));
+    down.onclick = function () { if (st.zone === Z.DRAWER) openInfo(); };
+    var up = el('div', 'panel hint hint-up', d);
+    sym('chevron_down', up, 26);
+    up.appendChild(document.createTextNode(tr('Inputs')));
+    up.onclick = function () { if (st.zone === Z.INFO) { st.zone = Z.DRAWER; updateFocus(); } };
   }
 
   function renderWeather(card) {
@@ -573,8 +605,8 @@
     el('div', 'cond', card, Data.condition(w.code, w.isDay));
     el('div', 'range', card, trf('H:{max}', {max: Data.degrees(w.max)}) + '   ' + trf('L:{min}', {min: Data.degrees(w.min)}));
     el('div', 'split', card);
-    var hours = el('div', 'hours', card), width = parseFloat(card.style.width) - 30 - 422, hw = width / 6;
-    for (var i = 0; i < w.hours.length && i < 6; i++) {
+    var count = Math.min(8, w.hours.length), hours = el('div', 'hours', card), hw = (1760 - 600 - 40) / Math.max(1, count);
+    for (var i = 0; i < count; i++) {
       var h = el('div', 'hour', hours), x = w.hours[i];
       h.style.left = (hw * i) + 'px';
       h.style.width = hw + 'px';
@@ -591,12 +623,14 @@
     el('div', 'head', card, tr('Crypto'));
     var stale = Data.staleness(Data.pricesAt, 5 * 60000);
     el('div', 'side', card, stale ? trf('quotes|{ago}', {ago: stale}) : tr('24h change'));
+    var cw = (1760 - 80) / coins.length;   // a column each
     for (var j = 0; j < coins.length; j++) {
       var i = coins[j], row = el('div', 'coin', card);
-      row.style.top = (86 + 52 * j) + 'px';
+      row.style.left = (40 + cw * j) + 'px';
+      row.style.width = (cw - 32) + 'px';
       coin(i, row);
       el('span', 'n', row, Data.coinName(i));
-      el('span', 'p', row, Data.money(Data.prices[i]));
+      el('span', 'p', row, Data.money(Data.prices[i])).style.fontSize = Math.min(54, Math.floor((cw - 32) / 6.5)) + 'px';
       var ch = Data.changes[i];
       if (!isNaN(ch)) el('span', 'c ' + (ch >= 0 ? 'up' : 'down'), row, Data.change(ch));
     }
@@ -606,7 +640,21 @@
     if (!drawerItems.length) return;
     var tiles = $('tiles').children;
     st.zone = Z.DRAWER;
-    st.drawer = Math.min(drawerItems.length - 1, nearest(document.querySelectorAll('#drawer .key'), centerX(tiles[st.shelf])));
+    st.drawer = nearest(drawerRow(0), centerX(tiles[st.shelf]));
+    updateFocus();
+  }
+
+  /** The keys of a row: 0, the inputs (or the shortcuts, without inputs), or 1, the shortcuts. */
+  function drawerRow(row) {
+    var keys = document.querySelectorAll('#drawer .key'), out = [];
+    var from = row && drawerInputs ? drawerInputs : 0, to = !row && drawerInputs ? drawerInputs : keys.length;
+    for (var i = from; i < to; i++) out.push(keys[i]);
+    return out;
+  }
+
+  function openInfo() {
+    if (st.zone !== Z.DRAWER || !hasInfo()) return;
+    st.zone = Z.INFO;
     updateFocus();
   }
 
@@ -857,10 +905,7 @@
   function activate() {
     switch (st.zone) {
       case Z.TOP:
-        if (st.top < 3) return;
-        if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
-        else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
-        else openSettings();
+        if (st.top >= 3 && topButtons[st.top - 3]) topButtons[st.top - 3][2]();
         return;
       case Z.CARDS:
         var p = cards[st.card], app = p && Data.appFor(p.app);
@@ -911,7 +956,7 @@
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(0, Math.min(5, st.top + dx));
+          st.top = Math.max(0, Math.min(2 + topButtons.length, st.top + dx));
           if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
           if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
@@ -919,8 +964,19 @@
         }
         break;
       case Z.DRAWER:
-        if (dx) st.drawer = Math.max(0, Math.min(drawerItems.length - 1, st.drawer + dx));
+        var two = drawerInputs > 0 && drawerInputs < drawerItems.length, low = two && st.drawer >= drawerInputs;
+        var keys = document.querySelectorAll('#drawer .key');
+        if (dx) {
+          var lo = low ? drawerInputs : 0, hi = two && !low ? drawerInputs - 1 : drawerItems.length - 1;
+          st.drawer = Math.max(lo, Math.min(hi, st.drawer + dx));
+        }
+        else if (dy < 0 && low) st.drawer = nearest(drawerRow(0), centerX(keys[st.drawer]));
         else if (dy < 0) { closeDrawer(); return; }
+        else if (two && !low) st.drawer = drawerInputs + nearest(drawerRow(1), centerX(keys[st.drawer]));
+        else { openInfo(); return; }
+        break;
+      case Z.INFO:
+        if (dy < 0) st.zone = Z.DRAWER;
         break;
       case Z.APPS:
         var g = st.grid + dx + dy * 5;
@@ -948,7 +1004,7 @@
     if (st.zone === Z.EDIT) { setClass($('shelfedit'), 'open', false); openSettings(); st.row = rowsNow.length - 2; updateFocus(); return; }
     if (st.zone === Z.LANG) { closeLanguages(false); return; }
     if (sheetOpen()) { closeSheets(); return; }
-    if (st.zone === Z.DRAWER) { closeDrawer(); return; }
+    if (st.zone === Z.DRAWER || st.zone === Z.INFO) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
     TV.back();
   }
@@ -956,7 +1012,7 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG))) return;
+      if (saverOn || st.zone === Z.INFO || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG))) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
@@ -1077,7 +1133,6 @@
 
   function renderAll() {
     renderTop();
-    renderQuotes();
     cards = [];
     renderCards();
     renderShelf();
@@ -1119,7 +1174,6 @@
   }
 
   Data.onChange(function () {
-    renderQuotes();
     renderCards();
     renderPanels();
     checkNight();
