@@ -6,9 +6,6 @@ config.properties
 # Build output
 out/
 *.apk
-*.ipk
-!docs/webos/FreeMyTV-webos-*.ipk
-*.wgt
 __pycache__/
 
 # macOS

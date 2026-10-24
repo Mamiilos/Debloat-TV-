@@ -21,7 +21,6 @@
  "Connecting…": "接続中…",
  "Couldn't check Free My TV: {error}": "Free My TVを確認できませんでした：{error}",
  "Couldn't go back to the original: {error}": "元に戻せませんでした：{error}",
- "Couldn't open TV Settings": "テレビの設定を開けませんでした",
  "Couldn't open {app}.": "{app}を開けませんでした。",
  "Couldn't search now: {error}": "今は検索できません：{error}",
  "Couldn't turn on Free My TV: {error}": "Free My TVをオンにできませんでした：{error}",
