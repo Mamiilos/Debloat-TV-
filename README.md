@@ -164,6 +164,8 @@ python3 tools/walls4k.py <TV IP> --clear
 
 The home screen hands the video decoder back whenever an app opens. Times of day in the names work as for your photos.
 
+The full guide, with screenshots: [APPLE_TV_THEME.md](APPLE_TV_THEME.md).
+
 ## Going back
 
 On the TV: *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app come back exactly as they were. If the new home screen ever crashes three times in five minutes, it switches back by itself.
