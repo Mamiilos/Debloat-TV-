@@ -30,6 +30,9 @@ before you do it, and let them do the taps on the TV.
    it. If they paste it in the chat anyway, put it only in `config.properties`.
    Without a key everything works except the picks and the screensaver photos.
    The same goes for the optional `watchmode_key` (free, watchmode.com; makes picks open the title's page): theirs, secret, only in `config.properties`.
+   And for the optional `yandex_weather_key` (Yandex Weather API, yandex.ru/pogoda/b2b/console; free only for a 7-day
+   test, then paid): with it the weather comes from Yandex; without it from MET Norway (api.met.no, free, no key), and
+   from Open-Meteo only when MET can't be reached (some networks in Russia can't reach Open-Meteo).
 5. **Build:** `./build.sh` → `FreeMyTV.apk`. Keep `freemytv.keystore`: updates must be signed with the same key.
 6. **Install:** `adb connect <IP>:5555`. The TV asks *Allow USB debugging?*: tell them to accept and tick *Always
    allow*. Then `adb install -r FreeMyTV.apk`. If it hangs, Google Play Protect is asking on the TV (Android 14:

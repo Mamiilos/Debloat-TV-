@@ -149,6 +149,21 @@ python3 tools/photos.py <TV IP> beach.jpg hills.jpg Holidays/
 
 They land in the app's own folder on the TV (no permission needed); on Android 11, which keeps adb out of other apps' folders, they go through Free My TV itself. The next time the home screen, the screensaver or Free My TV's settings open, the app imports each one: turned upright, cropped to 16:9, resized for the TV and saved without its GPS and other tags; what was sent is then deleted. The screensaver shows them in the order you sent them, instead of the picks' photos; without a TMDB key, one of them is the home screen's background, a new one every hour. *Home Settings* → *My Photos*: the arrows turn them on or off, OK removes them. Up to 100; JPEG, PNG and WebP, and HEIC on Android 9 and newer.
 
+A photo named with a time of day (*dawn*, *day*, *dusk* or *night*, as in `night-mojave.jpg`) shows only then, worked out from your city's sunrise and sunset.
+
+### The Apple TV theme (optional)
+
+*Home Settings* → *Theme* → *Apple TV* (or `theme=appletv` in `config.properties`): a tvOS-style home screen on Google TV and Android TV. A large clock with the date and the weather, a Liquid Glass plate under the first row of apps, the rest in a grid, folders and moving apps (hold OK, or Menu), and a Control Center behind the pill at the top right (inputs, network, volume, settings). A crypto card shows each coin with a small chart; *Home Settings* → *Chart* picks 24 hours, 7 days or 30 days, and the coin rows pick the coins.
+
+**4K wallpapers.** On most 4K TVs Android draws its interface at 1920×1080 and stretches it to the panel, so a picture there is never sharper than that. Video reaches the panel at its own size: this sends each picture as a still 4K HEVC video, which the home screen shows on the TV's video layer behind its tiles (it needs ffmpeg on your computer; start from 4K or larger pictures):
+
+```bash
+python3 tools/walls4k.py <TV IP> Wallpapers/
+python3 tools/walls4k.py <TV IP> --clear
+```
+
+The home screen hands the video decoder back whenever an app opens. Times of day in the names work as for your photos.
+
 ## Going back
 
 On the TV: *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app come back exactly as they were. If the new home screen ever crashes three times in five minutes, it switches back by itself.
@@ -259,7 +274,8 @@ No accounts, no analytics, no tracking. The app talks to TMDB, Open-Meteo (with 
 - On Samsung TVs it installs with [TizenBrew Installer](https://github.com/reisxd/TizenBrewInstaller) by [@reisxd](https://github.com/reisxd).
 - This product uses the TMDB API but is not endorsed or certified by [TMDB](https://www.themoviedb.org/).
 - Links to the titles in the streaming apps by [Watchmode](https://api.watchmode.com/).
-- Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Prices from the [Binance](https://www.binance.com/) public API.
+- Weather data by [MET Norway](https://api.met.no/) (CC BY 4.0) and [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0), or [Yandex Weather](https://yandex.ru/pogoda/b2b) with your own key. Prices from the [Binance](https://www.binance.com/) public API.
+- The Apple TV theme follows the layout of [Aerial](https://github.com/pengchujin/aerial-tv) by [@pengchujin](https://github.com/pengchujin) (MIT). Not affiliated with Apple.
 - Icons: [Material Symbols](https://fonts.google.com/icons) (Apache 2.0). Font: [Inter](https://rsms.me/inter/) (SIL OFL 1.1). Coin logos: [cryptocurrency-icons](https://github.com/spothq/cryptocurrency-icons) (CC0). Samsung app logos: [Simple Icons](https://simpleicons.org) (CC0).
 - Not affiliated with Google, TCL, LG, Samsung or any streaming service. App names and logos belong to their owners.
 
