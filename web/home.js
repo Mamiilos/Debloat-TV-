@@ -855,9 +855,11 @@
 
   // MARK: - Opening things
 
-  /** Nuvio, when the TV has it: picks can open on its page there (Home Settings, Open picks in). */
+  /** Nuvio, when the TV has it: picks can open on its page there (Home Settings, Open picks in). LG only for now:
+   *  Samsung's launch passes no data, so Nuvio would open on its Home. */
   function nuvio() {
-    for (var i = 0; i < apps.length; i++) if (/nuvio/i.test(apps[i].id) || /^nuvio/i.test(apps[i].title)) return apps[i];
+    if (TV.name !== 'webos') return null;
+    for (var i = 0; i < apps.length; i++) if (/nuvio/i.test(apps[i].id) || /^nuvio\b/i.test(apps[i].title)) return apps[i];
     return null;
   }
 
