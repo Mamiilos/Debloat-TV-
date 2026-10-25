@@ -439,7 +439,7 @@ final class HomeMode {
                 busy(c, Ui.trf("Turning off apps ({done}/{total})…", "done", done, "total", targets.size()));
                 if (!candidates.contains(pkg) || needed.contains(pkg) || owners.contains(pkg) || keptOff.contains(pkg)) continue;
                 // The TV's home screen only once Google TV's setup app is off: its recovery screen would take Home.
-                if (pkg.equals(homePkg) && setupOn) {
+                if (tvHome(pkg, homePkg) && setupOn) {
                     AppLog.w("kept the TV's home screen on: Google TV's setup app is still on");
                     continue;
                 }
@@ -688,7 +688,7 @@ final class HomeMode {
                 // In the switch's order (Google TV's setup app before its home screen), then the rest.
                 List<String> order = new ArrayList<>();
                 for (String pkg : targets(home, dream, s.optBoolean("setupHome", true))) {
-                    if (!reverted || !(pkg.equals(homePkg) || pkg.equals(GOOGLE_SETUP) || pkg.equals(packageOf(dream)))) {
+                    if (!reverted || !(tvHome(pkg, homePkg) || pkg.equals(GOOGLE_SETUP) || pkg.equals(packageOf(dream)))) {
                         wanted.add(pkg);
                         order.add(pkg);
                     }
@@ -744,7 +744,7 @@ final class HomeMode {
                         continue;
                     }
                     if (needed.contains(pkg)) continue;
-                    if (pkg.equals(homePkg) && setupOn) {
+                    if (tvHome(pkg, homePkg) && setupOn) {
                         AppLog.w("kept the TV's home screen on: Google TV's setup app is still on");
                         continue;
                     }
@@ -757,11 +757,13 @@ final class HomeMode {
                 // The switch's own rule, at every check: the TV's home screen stays on while Google TV's setup app is
                 // on. With the home off, the setup app's recovery screen takes Home, and a TV that turns the setup app
                 // back on at every start may not start at all (#269). Versions before 1.2 could leave it that way.
-                if (setupOn && homePkg != null && !homePkg.equals(PKG) && disabledNow.contains(homePkg)
-                        && adb.shell("pm enable " + homePkg).contains("new state: enabled")) {
-                    disabled.remove(homePkg);
-                    disabledNow.remove(homePkg);
-                    AppLog.w("turned the TV's home screen back on: Google TV's setup app is on");
+                for (String tv : new String[] {homePkg, packageOf(GOOGLE_HOME)}) {
+                    if (setupOn && tv != null && !tv.equals(PKG) && disabledNow.contains(tv)
+                            && adb.shell("pm enable " + tv).contains("new state: enabled")) {
+                        disabled.remove(tv);
+                        disabledNow.remove(tv);
+                        AppLog.w("turned the TV's home screen back on: Google TV's setup app is on");
+                    }
                 }
                 if (!reverted && !homeHolder(adb).contains(PKG)) {
                     adb.shell("cmd package set-home-activity " + HOME_ACTIVITY);
@@ -803,6 +805,10 @@ final class HomeMode {
         String homePkg = home.contains("FallbackHome") ? null : packageOf(home);
         if (setupHome) out.add(GOOGLE_SETUP);
         if (homePkg != null && !homePkg.equals(PKG)) out.add(homePkg);
+        // Another launcher was the home screen (Projectivy on a Chromecast): Google TV's own is still there, and its
+        // higher priority takes the Home button from ours (packages the TV lacks are skipped).
+        String googleHome = packageOf(GOOGLE_HOME);
+        if (!googleHome.equals(homePkg)) out.add(googleHome);
         if (TV_LAUNCHER.equals(homePkg)) out.add(TV_RECOMMENDATIONS);
         String dreamPkg = packageOf(dream);
         // screensaver=false keeps the TV's own screensaver: then it stays on.
@@ -917,6 +923,11 @@ final class HomeMode {
     private static String defaultDream(Adb adb) throws IOException {
         String d = adb.shell("settings get secure screensaver_default_component").trim();
         return d.contains("/") && !d.startsWith(PKG + "/") ? safeComponent(d) : "";
+    }
+
+    /** The recorded home screen or Google TV's: both stay on while Google TV's setup app is on, and after a revert. */
+    private static boolean tvHome(String pkg, String homePkg) {
+        return pkg.equals(homePkg) || pkg.equals(packageOf(GOOGLE_HOME));
     }
 
     private static String packageOf(String component) {
