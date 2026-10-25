@@ -835,7 +835,11 @@ final class HomeMode {
      * answers the Home button. Treat that as launcherx, or it stays on and "original" restores the recovery screen.
      */
     private static String realHome(String home) {
-        return home.startsWith(GOOGLE_SETUP + "/") ? GOOGLE_HOME : safeComponent(home);
+        if (home.startsWith(GOOGLE_SETUP + "/")) return GOOGLE_HOME;
+        // Settings' FallbackHome is a rescue activity, not the selected launcher.  Recording it makes the Wi-Fi
+        // safety check believe Settings owns the home screen and can reject an otherwise safe switch.
+        if (home.contains("FallbackHome")) return "";
+        return safeComponent(home);
     }
 
     private static String originalDream(JSONObject s) {

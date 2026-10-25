@@ -333,7 +333,8 @@ final class HomeData {
      */
     boolean isNight(long now) {
         String theme = Prefs.theme();
-        // Moi is a deliberate pair of permanent palettes, not an automatic inversion at sunrise or sunset.
+        // The fixed cleaner palettes deliberately ignore the automatic sunrise/sunset appearance.  Classic Glass
+        // keeps Free My TV's original dynamic palette, so it falls through to the normal calculation below.
         if (theme.equals("dark") || theme.equals("moi-dark")) return true;
         if (theme.equals("light") || theme.equals("moi-light")) return false;
         long t = Shaders.timeOfDay(now, 0);

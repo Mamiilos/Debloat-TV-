@@ -1404,7 +1404,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawMoiTile(Canvas c, int i) {
         HomeApps.Item it = shelf.get(i);
-        float f = Ui.clamp(tileFocus[i].value), s = 1 + .065f * f;
+        // Classic Glass uses the same measured lift as the stock shelf: it reads as a physical card coming forward,
+        // instead of a bordered control.  The fixed Cleaner palettes keep their deliberately quieter scale.
+        float f = Ui.clamp(tileFocus[i].value), s = 1 + (moiClassic() ? .12f : .065f) * f;
         RectF base = tileRects[i];
         float cx = base.centerX(), cy = base.centerY();
         cell.set(cx - base.width() * s / 2, cy - base.height() * s / 2,
@@ -1447,6 +1449,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             drawerGlass(c, cell, radius, 0.46f, 0x21000000, 7 * k);
             Symbols.draw(getContext(), c, "apps", cell.centerX(), cell.centerY(), 44 * k, moiPrimary());
         }
+        // Classic Glass keeps the stock shelf's focus language: elevation and the untouched brand card, without an
+        // extra outline.  The glass shader already provides the material rim for the All Apps doorway.
+        if (moiClassic()) return;
         // The glossy outline is deliberately not a tinted mask.  It feels like glass at rest and becomes a clear
         // tvOS-style focus indication without competing with the brand colour.
         border.setColor(Ui.alpha(moiLight() ? 0xFF245F9F : 0xFFFFFFFF, .18f + .74f * f));
@@ -1695,7 +1700,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             shadow.setColor(Ui.alpha(0xFF000000, 0.45f * f));
             shadows.draw(c, tmp, r, SHADOW_BLUR * k, shadow);
         }
-        if (moi()) {
+        if (moi() && !moiClassic()) {
             // Keep the elevated, glossy material of Free My TV's stock drawer. Focus lights the same glass; it must
             // never turn into a disconnected opaque white tile.
             drawerGlass(c, cell, r, 0.7f, 0x14000000, 6 * k);
@@ -1721,7 +1726,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (moi()) {
             // This has the same centred hierarchy as a tvOS tile: symbol, device name, physical source.  The prior
             // left-aligned version left an accidental-looking hole beside the icon on wide HDMI cards.
-            int moiInk = off ? (moiLight() ? 0xFF7A8DA5 : 0xA8D5DFEE) : moiPrimary();
+            int moiInk = off ? Ui.alpha(moiSecondary(), .72f) : moiPrimary();
             Symbols.draw(getContext(), c, it.symbol, cell.centerX(), cell.top + 27 * k * s, 26 * k * s, moiInk);
             drawerLabel.setColor(moiInk);
             drawerLabel.setTextAlign(Paint.Align.CENTER);
@@ -1731,7 +1736,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             String label = TextUtils.ellipsize(it.label, fitPaint, room, TextUtils.TruncateAt.END).toString();
             c.drawText(label, cell.centerX(), cell.top + 67 * k, drawerLabel);
             String source = it.kind == HomeApps.INPUT ? "HDMI " + it.number : Ui.tr("Antenna / cable");
-            cardDim.setColor(off ? (moiLight() ? 0xFF8A9DB4 : 0x87D5DFEE) : Ui.alpha(moiSecondary(), .84f));
+            cardDim.setColor(Ui.alpha(moiSecondary(), off ? .62f : .84f));
             cardDim.setTextAlign(Paint.Align.CENTER);
             cardDim.setTextSize(15 * k * s);
             c.drawText(source, cell.centerX(), cell.bottom - 15 * k, cardDim);
@@ -3083,7 +3088,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // MARK: - Light design: title, tabs, cards and icon-only buttons
 
-    /** Moi is a dashboard layout with two intentionally designed palettes, not a normal auto theme. */
+    /** The cleaner themes share the dashboard layout while retaining their own visual material. */
     private boolean moi() {
         return Prefs.moiTheme();
     }
@@ -3092,13 +3097,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return "moi-light".equals(Prefs.theme());
     }
 
-    // Moi's semantic palette.  Keeping roles here prevents an accidental "invert everything" light theme and makes
-    // focus, copy and glass edge colors stay coherent when the system changes between the two named themes.
-    private int moiPrimary() { return moiLight() ? 0xFF17243A : 0xFFF4F8FF; }
-    private int moiSecondary() { return moiLight() ? 0xFF4A5E78 : 0xFFDCE7F7; }
-    private int moiMuted() { return moiLight() ? 0xFF687B93 : 0xFFB8C7DA; }
-    private int moiFocus() { return moiLight() ? 0xFF245F9F : 0xFFF4F8FF; }
-    private int moiGlassEdge() { return moiLight() ? 0x2C18314F : 0x26FFFFFF; }
+    /** The new layout over Free My TV's own automatic aurora and liquid-glass material. */
+    private boolean moiClassic() {
+        return "moi-classic".equals(Prefs.theme());
+    }
+
+    // Semantic roles keep the fixed palettes composed while Classic Glass inherits Free My TV's day/night contrast.
+    private int moiPrimary() { return moiClassic() ? tone(L_INK, WHITE) : moiLight() ? 0xFF17243A : 0xFFF4F8FF; }
+    private int moiSecondary() { return moiClassic() ? tone(L_DIM, 0xFFD1E1F7) : moiLight() ? 0xFF4A5E78 : 0xFFDCE7F7; }
+    private int moiMuted() { return moiClassic() ? tone(L_FAINT, 0xFFB8D0F0) : moiLight() ? 0xFF687B93 : 0xFFB8C7DA; }
+    private int moiFocus() { return moiClassic() ? tone(L_INK, WHITE) : moiLight() ? 0xFF245F9F : 0xFFF4F8FF; }
+    private int moiGlassEdge() { return moiClassic() ? 0x00000000 : moiLight() ? 0x2C18314F : 0x26FFFFFF; }
 
     private void layoutLight() {
         if (lTab == null) return;
@@ -3267,7 +3276,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float radius = 30 * k;
         // A frosted surface should be perceived from the light it catches, not from a hard rectangle around it.
         // Do not paint a literal reflection strip here: on several Sony compositor paths it resolves into visible bands.
-        drawerGlass(c, r, radius, 0.56f, 0x32000000, 13 * k);
+        drawerGlass(c, r, radius, moiClassic() ? 0.72f : 0.56f, 0x32000000, 13 * k);
+        if (moiClassic()) return;
         border.setColor(moiGlassEdge());
         border.setStrokeWidth(1.1f * k);
         c.drawRoundRect(r, radius, radius, border);
@@ -3470,6 +3480,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 tmp.offset(0, 9 * k * f);
                 shadow.setColor(Ui.alpha(0xFF000000, .5f * f));
                 shadows.draw(c, tmp, rad, SHADOW_BLUR * k, shadow);
+            }
+            if (moiClassic()) {
+                // Match the stock home controls: transparent liquid glass at rest, then a clean white focus state.
+                // This keeps the moving aurora visible instead of replacing it with the blue dashboard circles.
+                drawerGlass(c, cell, rad, .65f, 0x16000000, 7 * k);
+                if (f > .01f) {
+                    fill.setShader(null);
+                    fill.setColor(Ui.alpha(WHITE, f));
+                    c.drawCircle(cell.centerX(), cell.centerY(), rad, fill);
+                }
+                Symbols.draw(getContext(), c, it.symbol, cell.centerX(), cell.centerY(), 27 * k * s,
+                        blend(tone(L_INK, 0xEBFFFFFF), L_INK, f));
+                if (f > .01f) {
+                    lTip.setColor(moiPrimary());
+                    lTip.setAlpha(Math.round(255 * f));
+                    c.drawText(it.label, r.centerX(), r.bottom + (38 + 5 * f) * k, lTip);
+                    lTip.setAlpha(255);
+                }
+                continue;
             }
             int rest = moiLight() ? 0xD9EAF1F9 : 0xE9223048;
             int focused = moiLight() ? 0xFF245F9F : 0xFFF6F9FF;

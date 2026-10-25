@@ -88,21 +88,22 @@ final class Prefs {
 
     static void setTemperature(String v) { put("temperature", v); }
 
-    /** Automatic, the original light/dark looks, or either permanent Moi dashboard palette. */
+    /** Automatic, the original light/dark looks, or one of the cleaner dashboard palettes. */
     static String theme() {
         String v = sp().getString("theme", "auto");
         // Builds from the first Moi prototype stored this short value.  Keep every existing TV on the intended dark
         // dashboard while exposing an explicit pair of choices from now on.
         if (v.equals("moi")) return "moi-dark";
-        return v.equals("light") || v.equals("dark") || v.equals("moi-dark") || v.equals("moi-light") ? v : "auto";
+        return v.equals("light") || v.equals("dark") || v.equals("moi-dark") || v.equals("moi-light")
+                || v.equals("moi-classic") ? v : "auto";
     }
 
     static void setTheme(String v) { put("theme", v); }
 
-    /** True for either Moi palette; use this rather than comparing a concrete palette in layout behavior. */
+    /** True for any cleaner dashboard palette; use this rather than comparing a concrete palette in layout behavior. */
     static boolean moiTheme() {
         String v = theme();
-        return v.equals("moi-dark") || v.equals("moi-light");
+        return v.equals("moi-dark") || v.equals("moi-light") || v.equals("moi-classic");
     }
 
     // The launcher and the idle background are separate choices. Keep the previous Free My TV saver unless the person

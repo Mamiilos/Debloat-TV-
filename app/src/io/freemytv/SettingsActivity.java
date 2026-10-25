@@ -675,7 +675,7 @@ public class SettingsActivity extends Activity {
 
         // MARK: - Home Settings and Remote Buttons
 
-        private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark", "moi-dark", "moi-light"};
+        private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark", "moi-dark", "moi-light", "moi-classic"};
         /** Home Settings: language, temperature, theme, sounds, weather, city, quotes, then one row per coin. */
         private static final int CITY_ROW = 5, COIN_ROWS = 7;
 
@@ -709,6 +709,7 @@ public class SettingsActivity extends Activity {
             String theme = Prefs.theme();
             v[2] = theme.equals("light") ? Ui.tr("Light") : theme.equals("dark") ? Ui.tr("Dark")
                     : theme.equals("moi-dark") ? "Moi Dark" : theme.equals("moi-light") ? "Moi Light"
+                    : theme.equals("moi-classic") ? "Classic Glass"
                     : Ui.tr("Automatic");
             v[3] = onOff(Prefs.sounds());
             v[4] = onOff(Prefs.weather());
