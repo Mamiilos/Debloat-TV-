@@ -47,6 +47,8 @@ var Prefs = (function () {
     temperature: function () { return pick('temperature', CONFIG.temperature || 'auto'); },
     theme: function () { return pick('theme', CONFIG.theme || 'auto'); },
     weather: function () { return pick('weather', true); },
+    /** OK on the screensaver opens the title it shows, in its app; any other key only closes it (off by default). */
+    saverWatch: function () { return pick('saverWatch', false) === true; },
     /** The weather card's forecast: 'hours' (the next 6 hours) or 'days' (the next 5 days). */
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
@@ -152,6 +154,45 @@ var Data = (function () {
     });
   }
 
+  // MARK: - Photo of the day (Bing, no key: the "Photo of the day" theme, shown only without picks)
+
+  var BING = 'https://www.bing.com';
+  var wallpaper = stored('wallpaper'), fetchingWallpaper = false, wallpaperFailedAt = 0;
+
+  /** Bing's own image path ("/th?id=...") on www.bing.com, or '' (another host, "//host", "\\", quotes or spaces). */
+  function bingImage(path) {
+    if (typeof path !== 'string' || !/^\/[^\/\\]/.test(path) || /[\s"'()\\]/.test(path)) return '';
+    try {
+      var u = new URL(path, BING);
+      return u.protocol === 'https:' && u.host === 'www.bing.com' ? u.href : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function refreshWallpaper() {
+    var now = Date.now();
+    if (Prefs.theme() !== 'photo' || KEY || fetchingWallpaper) return;
+    if (wallpaper && now - wallpaper.at < 6 * 3600000 && now >= wallpaper.at) return;
+    if (wallpaperFailedAt && now - wallpaperFailedAt < 30 * 60000 && now >= wallpaperFailedAt) return;
+    fetchingWallpaper = true;
+    // The last 8 days: the newest one Bing allows as a wallpaper ("wp").
+    get(BING + '/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=' + I18N.locale(), {}, function (err, body) {
+      fetchingWallpaper = false;
+      var days = !err && body && body.images, day = null, url = '';
+      for (var i = 0; days && i < days.length && !url; i++) {
+        if (days[i].wp === false) continue;   // Bing: not available as a wallpaper
+        url = bingImage(days[i].url);
+        if (url) day = days[i];
+      }
+      if (!day) { wallpaperFailedAt = Date.now(); return; }
+      wallpaperFailedAt = 0;
+      wallpaper = {url: url, caption: day.copyright || '', at: Date.now()};
+      store('wallpaper', wallpaper);
+      changed();
+    });
+  }
+
   // MARK: - Prices
 
   var COINS = ['BTC', 'ETH', 'SOL', 'USDT'];
@@ -162,6 +203,11 @@ var Data = (function () {
     store('dollarsFor', CURRENCY);
     CURRENCY = 'USD';
     QUOTE = 'USDT';
+  }
+  /** A pair with no trade for a day: Binance halted it and keeps answering with the frozen last price (AUD since 2026-10-06). */
+  function halted(list) {
+    for (var i = 0; list && i < list.length; i++) if (list[i].closeTime > 0 && Date.now() - list[i].closeTime > 864e5) return true;
+    return false;
   }
   if (stored('dollarsFor') === CURRENCY && CURRENCY !== 'USD') {
     CURRENCY = 'USD';
@@ -209,6 +255,8 @@ var Data = (function () {
         // A pair Binance doesn't list (HTTP 400): the prices go in dollars. Binance.US has only dollar pairs: its 400
         // counts only where Binance.com refuses the US (HTTP 451), not after a timeout or a 5xx there.
         if (err && err.message === 'HTTP 400' && QUOTE !== 'USDT' && (h === 0 || refused)) { fetchingPrices = false; inDollars(); refreshPrices(); return; }
+        // Halted: dollars for this run, not saved like the 400's (the market may open again).
+        if (!err && QUOTE !== 'USDT' && halted(body)) { fetchingPrices = false; CURRENCY = 'USD'; QUOTE = 'USDT'; refreshPrices(); return; }
         if (err || !parsePrices(body)) {
           if (h + 1 < hosts.length && !(err && err.message === 'HTTP 400')) next(h + 1, err && err.message === 'HTTP 451');
           else fetchingPrices = false;
@@ -520,6 +568,9 @@ var Data = (function () {
   // MARK: - Formatting
 
   function fmt(v, digits) {
+    // Old WebKit (Tizen 2) has no Intl: toLocaleString ignores its options and prints every digit, without failing.
+    // English separators there; a per-language table if someone asks.
+    if (typeof Intl === 'undefined') return v.toFixed(digits).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     try { return v.toLocaleString(I18N.locale(), {minimumFractionDigits: digits, maximumFractionDigits: digits}); } catch (e) { return v.toFixed(digits); }
   }
 
@@ -532,7 +583,7 @@ var Data = (function () {
     onChange: function (fn) { listeners.push(fn); },
     setApps: function (apps) { installed = apps; },
     appFor: appFor,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshWallpaper(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     get weather() { return weather; },
     get weatherAt() { return weatherAt; },
@@ -541,6 +592,8 @@ var Data = (function () {
     get pricesAt() { return pricesAt; },
     activeCoins: activeCoins,
     hasKey: function () { return !!KEY; },
+    /** The photo of the day ({url, caption}) when its theme is on and there are no picks; otherwise null. */
+    wallpaper: function () { return Prefs.theme() === 'photo' && !KEY && wallpaper && bingImage(wallpaper.url.slice(BING.length)) ? wallpaper : null; },
     recsError: function () { return recsError; },
     picks: now,
     showcase: all,

@@ -135,8 +135,13 @@ final class Backdrop {
 
         int[] frost = reduce(out, FW, FH, 3, 3);
         int[] glass = reduce(out, GW, GH, 2, 2);
-        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
+        // At night the home screen dims the sharp photo by NIGHT_DIM; the glass gets the same, ready.
+        return new Backdrop(gpu(out), frost, glass, null, null, null, null,
+                darken(frost.clone(), NIGHT_DIM), darken(glass.clone(), NIGHT_DIM));
     }
+
+    /** How much the photo of the day (the sharp background) darkens at night. */
+    static final float NIGHT_DIM = 0.45f;
 
     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */
     static final int PHOTO_FROST = 6;

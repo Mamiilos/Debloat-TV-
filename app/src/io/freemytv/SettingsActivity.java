@@ -99,7 +99,8 @@ public class SettingsActivity extends Activity {
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         if (preview != null) {
-            // Like the real screensaver: arrows, OK or Back close it (other keys go on to the system).
+            // Like the real screensaver: arrows, OK or Back close it (other keys go on to the system); with Watch from the
+            // screensaver on, OK opens the title first.
             switch (event.getKeyCode()) {
                 case KeyEvent.KEYCODE_DPAD_UP:
                 case KeyEvent.KEYCODE_DPAD_DOWN:
@@ -108,7 +109,11 @@ public class SettingsActivity extends Activity {
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_BACK:
-                    if (event.getAction() == KeyEvent.ACTION_UP) closePreview();
+                    if (event.getAction() == KeyEvent.ACTION_UP) {
+                        boolean ok = event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER || event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
+                        if (ok && Prefs.saverWatch()) preview.watch();
+                        closePreview();
+                    }
                     return true;
                 default:
                     return super.dispatchKeyEvent(event);
@@ -190,8 +195,10 @@ public class SettingsActivity extends Activity {
                 recs = Recs.status(getContext());
                 boolean nowBusy = !busyText().isEmpty();
                 if (nowBusy) pendingAt = 0;
-                // What can change the reasons away from a key: a switch (or the watchdog's revert) and the overlay's check.
-                int whyNow = (freeActive() ? 1 : 0) | (Capabilities.refused(getContext(), Capabilities.OVERLAY) ? 2 : 0);
+                // What can change the reasons away from a key: a switch (or the watchdog's revert) and the overlay's and the
+                // listener's checks.
+                int whyNow = (freeActive() ? 1 : 0) | (Capabilities.refused(getContext(), Capabilities.OVERLAY) ? 2 : 0)
+                        | (Capabilities.refused(getContext(), Capabilities.LISTENER) ? 4 : 0);
                 if (whyNow != whyState) whyRows = null;
                 whyState = whyNow;
                 // A switch just ended: TalkBack reads how it went (the newest notice).
@@ -697,9 +704,11 @@ public class SettingsActivity extends Activity {
 
         // MARK: - Home Settings and Remote Buttons
 
-        private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, forecast, quotes, then one row per coin. */
-        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, FORECAST_ROW = 7, QUOTES_ROW = 8, COIN_ROWS = 9;
+        private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark", "photo"};
+        /** Home Settings: language, temperature, theme, my photos, sounds, watch from the screensaver, weather, city, forecast,
+         *  now playing, quotes, then one row per coin. */
+        private static final int PHOTOS_ROW = 3, SAVER_ROW = 5, WEATHER_ROW = 6, CITY_ROW = 7, FORECAST_ROW = 8, PLAYING_ROW = 9,
+                QUOTES_ROW = 10, COIN_ROWS = 11;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
@@ -714,9 +723,11 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Theme"));
             l.add(Ui.tr("My Photos"));
             l.add(Ui.tr("Navigation sounds"));
+            l.add(Ui.tr("Watch from the screensaver"));
             l.add(Ui.tr("Weather widget"));
             l.add(Ui.tr("City"));
             l.add(Ui.tr("Forecast"));
+            l.add(Ui.tr("Now Playing widget"));
             l.add(Ui.tr("Quotes widget"));
             l.add("Bitcoin");
             l.add("Ethereum");
@@ -733,14 +744,17 @@ public class SettingsActivity extends Activity {
             String unit = Prefs.temperature();
             v[1] = unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("unit|Automatic");
             String theme = Prefs.theme();
-            v[2] = theme.equals("light") ? Ui.tr("Light") : theme.equals("dark") ? Ui.tr("Dark") : Ui.tr("Automatic");
+            v[2] = theme.equals("light") ? Ui.tr("Light") : theme.equals("dark") ? Ui.tr("Dark")
+                    : theme.equals("photo") && !Recs.hasKey(getContext()) ? Ui.tr("Photo of the day") : Ui.tr("Automatic");
             int photos = Photos.files(getContext()).size();
             v[PHOTOS_ROW] = photos == 0 ? Ui.tr("photos|None")
                     : Prefs.photos() ? Ui.plural("plural|one:{n} photo|other:{n} photos", photos) : Ui.tr("Off");
             v[4] = onOff(Prefs.sounds());
-            v[5] = onOff(Prefs.weather());
+            v[SAVER_ROW] = onOff(Prefs.saverWatch());
+            v[WEATHER_ROW] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[FORECAST_ROW] = Prefs.forecast().equals("days") ? Ui.tr("Next days") : Ui.tr("Next hours");
+            v[PLAYING_ROW] = onOff(Prefs.nowPlaying());
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
@@ -764,6 +778,8 @@ public class SettingsActivity extends Activity {
             switch (screen) {
                 case MAIN:
                     return i == 5 ? Capabilities.NEED_REMOTE_BUTTONS : i == 6 ? Capabilities.NEED_ADB : null;
+                case HOME_SETTINGS:
+                    return pickScroll + i == PLAYING_ROW ? Capabilities.NEED_LISTENER : null;
                 case POWER: {
                     int id = powerRows()[i];
                     return id == P_WHERE ? Capabilities.NEED_OVERLAY : null;
@@ -914,8 +930,9 @@ public class SettingsActivity extends Activity {
                     Ui.tr("Disney+ button"), Ui.tr("All Apps button"), Ui.tr("Settings button"), Ui.tr("Profile button")};
             if (RemoteKeys.STEM_NETFLIX) return new String[] {Ui.tr("Netflix button")};
             if (RemoteKeys.KTC) return new String[] {Ui.tr("Tabii button")};
-            if (RemoteKeys.XIAOMI) return new String[] {Ui.tr("Mi button"), Ui.tr("Okko button"), Ui.tr("VK button"),
-                    Ui.tr("Rutube button"), Ui.tr("KION button"), Ui.tr("Wink button"), Ui.tr("IVI button")};
+            if (RemoteKeys.XIAOMI) return new String[] {Ui.tr("Mi button"), Ui.tr("YouTube button"), Ui.tr("PatchWall button"),
+                    Ui.tr("Okko button"), Ui.tr("VK button"), Ui.tr("Rutube button"), Ui.tr("KION button"),
+                    Ui.tr("Wink button"), Ui.tr("IVI button")};
             if (RemoteKeys.SONY) return new String[] {Ui.tr("BRAVIA CORE button"),
                     Ui.tr("Netflix button"), Ui.tr("Disney+ button"),
                     Ui.tr("Prime Video button"), Ui.tr("YouTube button"),
@@ -962,7 +979,9 @@ public class SettingsActivity extends Activity {
 
         /** Changes the focused row's value one step (OK and → go forward, ← goes back). */
         private void adjust(int dir) {
-            if (unavailable(focus) != null) return;
+            // Refused or without Free My TV mode, Now Playing can still be turned off (and the refusal is then forgotten).
+            boolean turnOff = screen == HOME_SETTINGS && pickScroll + focus == PLAYING_ROW && Prefs.nowPlaying();
+            if (unavailable(focus) != null && !turnOff) return;
             if (screen == POWER) {
                 int row = powerRow();
                 if (row == P_SLEEP) {
@@ -994,8 +1013,11 @@ public class SettingsActivity extends Activity {
                     break;
                 }
                 case 2: {
+                    // The photo of the day shows only without picks (with them, the first card's photo is the background).
+                    int n = Recs.hasKey(getContext()) ? THEMES.length - 1 : THEMES.length;
                     int at = java.util.Arrays.asList(THEMES).indexOf(Prefs.theme());
-                    Prefs.setTheme(THEMES[(at + dir + THEMES.length) % THEMES.length]);
+                    if (at >= n) at = 0;
+                    Prefs.setTheme(THEMES[(at + dir + n) % n]);
                     SleepOverlay.update(getContext());   // the pill's glass follows
                     break;
                 }
@@ -1004,11 +1026,16 @@ public class SettingsActivity extends Activity {
                     Prefs.setPhotos(!Prefs.photos());
                     return;
                 case 4: Prefs.setSounds(!Prefs.sounds()); break;
-                case 5: Prefs.setWeather(!Prefs.weather()); break;
+                case SAVER_ROW: Prefs.setSaverWatch(!Prefs.saverWatch()); break;
+                case WEATHER_ROW: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
                 case FORECAST_ROW:   // both are in memory: nothing to fetch
                     Prefs.setForecast(Prefs.forecast().equals("days") ? "hours" : "days");
                     return;
+                case PLAYING_ROW:   // the listener follows the widget: allowed while it's on, taken back when it goes off
+                    Prefs.setNowPlaying(!Prefs.nowPlaying());
+                    HomeMode.nowPlayingAccess(getContext());
+                    break;
                 case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
                 default:
                     if (!Prefs.quotes()) return;
