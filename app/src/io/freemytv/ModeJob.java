@@ -13,7 +13,7 @@ import android.os.PersistableBundle;
  * the switch finishes, even with the screen showing something else.
  */
 public class ModeJob extends JobService {
-    static final String APPLY = "apply", VERIFY = "verify", REVERT = "revert", MEMORY = "memory", REMOTE = "remote",
+    static final String APPLY = "apply", VERIFY = "verify", REVERT = "revert", MEMORY = "memory", REMOTE = "remote", PLAYING = "playing",
             AMBIENT = "ambient", AMBIENT_RESTORE = "ambient-restore", SCREENSAVER = "screensaver";
 
     @Override public boolean onStartJob(JobParameters params) {
@@ -29,6 +29,7 @@ public class ModeJob extends JobService {
                     case REVERT: HomeMode.revertHomeNow(app); break;
                     case MEMORY: HomeMode.measureMemoryNow(app, mode); break;
                     case REMOTE: HomeMode.ensureRemoteServiceNow(app); break;
+                    case PLAYING: HomeMode.nowPlayingAccessNow(app); break;
                     case AMBIENT: HomeMode.startOriginalAmbientNow(app); break;
                     case AMBIENT_RESTORE: HomeMode.restoreFreeDreamNow(app); break;
                     case SCREENSAVER: HomeMode.applyScreensaverChoiceNow(app); break;

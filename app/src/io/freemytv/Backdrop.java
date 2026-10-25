@@ -1,10 +1,10 @@
 package io.freemytv;
 
 import android.graphics.Bitmap;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
-import android.graphics.RectF;
 import android.graphics.Shader;
 
 /**
@@ -42,34 +42,56 @@ final class Backdrop {
     final int[] frost;      // heavily blurred (frosted glass, bottom drawer)
     final int[] glass;      // lightly blurred (Liquid Glass: the photo shows through the glass)
     final Bitmap wide, tall;            // the photo on the cards
-    final int[] light, lightGlass;      // by day: the frosted and glass versions, lightened
+    final BitmapShader wideShader, tallShader;   // theirs, for the rounded cards: they go away with the backdrop
+    final int[] light, lightGlass;     // by day: the frosted and glass versions, lightened
     final Bitmap lightImage;            // by day: the background (the lightened frosted version, scaled up on screen)
     final int[] nightFrost, nightGlass; // at night: frosted (the bottom drawer's frosted glass) and glass, darkened
     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
 
     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
                      int[] night, int[] nightGlass) {
+        this(image, frost, glass, wide, tall, light, lightGlass, night, nightGlass, light, night, FW, FH);
+    }
+
+    /** `lightBg` and `nightBg` (bw × bh): the background itself, when it isn't the frosted version. */
+    private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
+                     int[] night, int[] nightGlass, int[] lightBg, int[] nightBg, int bw, int bh) {
         this.image = image;
         this.frost = frost;
         this.glass = glass;
         this.wide = wide;
         this.tall = tall;
+        wideShader = wide == null ? null : new BitmapShader(wide, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        tallShader = tall == null ? null : new BitmapShader(tall, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
         this.light = light;
         this.lightGlass = lightGlass;
         this.nightFrost = night;
         this.nightGlass = nightGlass;
-        lightImage = light == null ? null : Bitmap.createBitmap(light, FW, FH, Bitmap.Config.ARGB_8888);
-        nightImage = night == null ? null : Bitmap.createBitmap(night, FW, FH, Bitmap.Config.ARGB_8888);
+        lightImage = lightBg == null ? null : Bitmap.createBitmap(lightBg, bw, bh, Bitmap.Config.ARGB_8888);
+        nightImage = nightBg == null ? null : Bitmap.createBitmap(nightBg, bw, bh, Bitmap.Config.ARGB_8888);
     }
 
     static Backdrop make(Bitmap src, boolean forLight) {
-        Bitmap out = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        return make(src, forLight, false);
+    }
+
+    /**
+     * `own`: one of your photos (Photos). Its background is less blurred than a pick's; behind the clock, date and
+     * weather it is whitened (darkened at night) as much as a pick's, so the text stays readable, then less toward the
+     * right, so it still reads as your photo. The glass and the drawer stay as they are.
+     */
+    static Backdrop make(Bitmap src, boolean forLight, boolean own) {
+        // Cropped to 16:9 at the source's resolution first, then filtered down (no step over 2×).
+        Bitmap crop = center(src, (float) W / H);
+        if (crop != src) src.recycle();
+        Bitmap out = Ui.downscale(crop, W, H);
+        if (out != crop) crop.recycle();
+        if (!out.isMutable()) {
+            Bitmap copy = out.copy(Bitmap.Config.ARGB_8888, true);
+            out.recycle();
+            out = copy;
+        }
         Canvas c = new Canvas(out);
-        Paint photo = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
-        float scale = Math.max((float) W / src.getWidth(), (float) H / src.getHeight());
-        float sw = src.getWidth() * scale, sh = src.getHeight() * scale;
-        c.drawBitmap(src, null, new RectF((W - sw) / 2, (H - sh) / 2, (W + sw) / 2, (H + sh) / 2), photo);
-        src.recycle();
         if (forLight) {
             // Light design: everything comes from the photo without scrims.
             Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
@@ -79,6 +101,12 @@ final class Backdrop {
             int[] lightGlass = whiten(glass.clone(), 0.74f);
             int[] night = darken(frost.clone(), 0.76f);
             int[] nightGlass = darken(glass, 0.56f);
+            if (own) {
+                int[] sharp = reduce(out, GW, GH, 1, 1);
+                int[] lightBg = ramp(sharp.clone(), 0.82f, 0.45f, true), nightBg = ramp(sharp, 0.76f, 0.5f, false);
+                out.recycle();
+                return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass, lightBg, nightBg, GW, GH);
+            }
             out.recycle();
             return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass);
         }
@@ -107,8 +135,13 @@ final class Backdrop {
 
         int[] frost = reduce(out, FW, FH, 3, 3);
         int[] glass = reduce(out, GW, GH, 2, 2);
-        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
+        // At night the home screen dims the sharp photo by NIGHT_DIM; the glass gets the same, ready.
+        return new Backdrop(gpu(out), frost, glass, null, null, null, null,
+                darken(frost.clone(), NIGHT_DIM), darken(glass.clone(), NIGHT_DIM));
     }
+
+    /** How much the photo of the day (the sharp background) darkens at night. */
+    static final float NIGHT_DIM = 0.45f;
 
     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */
     static final int PHOTO_FROST = 6;
@@ -154,20 +187,19 @@ final class Backdrop {
         return new Bitmap[] {out, frost};
     }
 
-    /** The center of the photo at the card's aspect ratio, filtered down (halving while possible) to the exact size. */
+    /** The center of the photo at the card's aspect ratio, filtered down to the exact size. */
     private static Bitmap card(Bitmap full, int w, int h) {
-        float ratio = (float) w / h;
-        int cw = Math.min(full.getWidth(), Math.round(full.getHeight() * ratio));
-        int ch = Math.min(full.getHeight(), Math.round(cw / ratio));
-        Bitmap b = Bitmap.createBitmap(full, (full.getWidth() - cw) / 2, (full.getHeight() - ch) / 2, cw, ch);
-        while (b.getWidth() / 2 >= w) {
-            Bitmap half = Bitmap.createScaledBitmap(b, b.getWidth() / 2, b.getHeight() / 2, true);
-            if (b != full) b.recycle();
-            b = half;
-        }
-        Bitmap out = Bitmap.createScaledBitmap(b, w, h, true);
+        Bitmap b = center(full, (float) w / h);
+        Bitmap out = Ui.downscale(b, w, h);
         if (b != full && b != out) b.recycle();
-        return gpu(out);
+        return out == full ? gpu(full.copy(Bitmap.Config.ARGB_8888, false)) : gpu(out);
+    }
+
+    /** The center of the image at that aspect ratio (the image itself when it already has it). */
+    private static Bitmap center(Bitmap b, float ratio) {
+        int cw = Math.min(b.getWidth(), Math.round(b.getHeight() * ratio));
+        int ch = Math.min(b.getHeight(), Math.round(cw / ratio));
+        return Bitmap.createBitmap(b, (b.getWidth() - cw) / 2, (b.getHeight() - ch) / 2, cw, ch);
     }
 
     /** Copies it to GPU memory (cheap to draw; the process doesn't keep the pixels). */
@@ -187,6 +219,19 @@ final class Backdrop {
             int g = Math.round(((p >> 8) & 255) * keep + base);
             int b = Math.round((p & 255) * keep + base + 2 * amount);
             px[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
+        }
+        return px;
+    }
+
+    /** Whitens (or darkens) by `left` up to 45% of the width, easing to `right` by 70% (a GW × GH image). */
+    private static int[] ramp(int[] px, float left, float right, boolean light) {
+        int[] col = new int[GH];
+        for (int x = 0; x < GW; x++) {
+            float t = Math.max(0, Math.min(1, (x / (float) GW - 0.45f) / 0.25f));
+            float a = left + (right - left) * t * t * (3 - 2 * t);
+            for (int y = 0; y < GH; y++) col[y] = px[y * GW + x];
+            if (light) whiten(col, a); else darken(col, a);
+            for (int y = 0; y < GH; y++) px[y * GW + x] = col[y];
         }
         return px;
     }

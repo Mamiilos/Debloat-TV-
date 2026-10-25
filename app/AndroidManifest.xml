@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- After the TV boots (and after a TV update), checks that Free My TV mode is still as you left it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Used only by the optional sleep timer introduced upstream. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <!-- Android 11+: without this list the app can't "see" the other apps (getLeanbackLaunchIntentForPackage
          returns null). The shelf and streaming apps, the live TV apps and, through the <intent>, every TV app
@@ -97,6 +102,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Fire TV opens the same dashboard as a regular app, without taking over Amazon's Home role. -->
+        <activity
+            android:name=".FireHomeActivity"
+            android:process=":home"
+            android:exported="false"
+            android:label="Free My TV"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.freemytv.settings"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/FreeMyTV.Home" />
+
         <service
             android:name=".Screensaver"
             android:process=":home"
@@ -152,6 +170,29 @@
             android:process=":home"
             android:exported="false"
             android:label="Free My TV notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Import photos from the companion page without exposing app-private storage. -->
+        <provider
+            android:name=".PhotoInbox"
+            android:authorities="io.freemytv.photos"
+            android:exported="true" />
+
+        <!-- The optional sleep timer is kept outside the home process while another app is open. -->
+        <service
+            android:name=".SleepOverlay"
+            android:process=":sleep"
+            android:exported="false" />
+
+        <!-- A separate, opt-in listener for the upstream Now Playing widget. -->
+        <service
+            android:name=".NowPlaying"
+            android:exported="true"
+            android:label="Free My TV"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

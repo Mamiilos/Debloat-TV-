@@ -32,6 +32,8 @@ final class Prefs {
     static final int KEY_SONY_CORE = SONY_KEY + 496, KEY_SONY_NETFLIX = SONY_KEY + 583, KEY_SONY_DISNEY = SONY_KEY + 491,
             KEY_SONY_PRIME = SONY_KEY + 490, KEY_SONY_YOUTUBE = SONY_KEY + 485, KEY_SONY_CRUNCHYROLL = SONY_KEY + 507,
             KEY_SONY_PLAY = SONY_KEY + 587;   // the Google Play button of older remotes: BUTTON_8 (BRAVIA 4K UR3, Android 10)
+    /** A button's value that opens this home screen's All Apps. */
+    static final String ALL_APPS = HomeMode.PKG + "#all";
     static final int[] KEYS = RemoteKeys.SONY
             ? new int[] {KEY_SONY_CORE, KEY_SONY_NETFLIX, KEY_SONY_DISNEY, KEY_SONY_PRIME, KEY_SONY_YOUTUBE, KEY_SONY_CRUNCHYROLL,
                     KEY_SONY_PLAY}
@@ -50,6 +52,11 @@ final class Prefs {
         Ui.applyLanguage();   // the language picked on the TV, now that it can be read
     }
 
+    /** The TV's own 12/24-hour setting (Settings → System → Date & time). */
+    static boolean clock24() {
+        return app != null && android.text.format.DateFormat.is24HourFormat(app);
+    }
+
     /** The app's context in this process (null before App.onCreate). */
     static Context context() {
         return app;
@@ -57,6 +64,15 @@ final class Prefs {
 
     private static SharedPreferences sp() {
         return app.getSharedPreferences("settings", Context.MODE_PRIVATE);
+    }
+
+    /** Refresh values written by the home-settings process before drawing a screensaver. */
+    @SuppressWarnings("deprecation")
+    static void reload() {
+        String before = language();
+        app.getSharedPreferences("settings", Context.MODE_MULTI_PROCESS);
+        version++;
+        if (!language().equals(before)) Ui.applyLanguage();
     }
 
     private static void put(String key, String value) {
@@ -94,7 +110,7 @@ final class Prefs {
         // Builds from the first Moi prototype stored this short value.  Keep every existing TV on the intended dark
         // dashboard while exposing an explicit pair of choices from now on.
         if (v.equals("moi")) return "moi-dark";
-        return v.equals("light") || v.equals("dark") || v.equals("moi-dark") || v.equals("moi-light")
+        return v.equals("light") || v.equals("dark") || v.equals("photo") || v.equals("moi-dark") || v.equals("moi-light")
                 || v.equals("moi-classic") ? v : "auto";
     }
 
@@ -126,13 +142,29 @@ final class Prefs {
     static boolean sounds() { return sp().getBoolean("sounds", true); }
     static void setSounds(boolean on) { put("sounds", on); }
 
+    /** OK on the screensaver opens its title; any other key only closes it. */
+    static boolean saverWatch() { return sp().getBoolean("saverWatch", false); }
+    static void setSaverWatch(boolean on) { put("saverWatch", on); }
+
     // MARK: - Widgets and coins
 
     static boolean weather() { return sp().getBoolean("weather", true); }
     static void setWeather(boolean on) { put("weather", on); }
+    static String forecast() { return "days".equals(sp().getString("forecast", "hours")) ? "days" : "hours"; }
+    static void setForecast(String v) { put("forecast", v); }
+
+    static boolean nowPlaying() { return sp().getBoolean("nowPlaying", false); }
+    static void setNowPlaying(boolean on) {
+        sp().edit().putBoolean("nowPlaying", on).commit();
+        version++;
+    }
 
     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
     static void setQuotes(boolean on) { put("quotes", on); }
+
+    /** Photos imported through the companion page can be shown in the background and screensaver. */
+    static boolean photos() { return sp().getBoolean("photos", true); }
+    static void setPhotos(boolean on) { put("photos", on); }
 
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }
@@ -153,6 +185,16 @@ final class Prefs {
         for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
         put("shelf", sb.toString());
     }
+
+    // MARK: - Sleep timer
+
+    static long sleepAt() { return sp().getLong("sleepAt", 0); }
+    static long sleepFrom() { return sp().getLong("sleepFrom", 0); }
+    static void setSleepAt(long at, long from) { sp().edit().putLong("sleepAt", at).putLong("sleepFrom", from).apply(); }
+    static boolean sleepShown() { return sp().getBoolean("sleepShown", true); }
+    static void setSleepShown(boolean on) { sp().edit().putBoolean("sleepShown", on).apply(); }
+    static int sleepPlace() { return sp().getInt("sleepPlace", 0); }
+    static void setSleepPlace(int place) { sp().edit().putInt("sleepPlace", place).apply(); }
 
     // MARK: - Top buttons
 

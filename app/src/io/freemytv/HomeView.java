@@ -1946,6 +1946,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         gridDirty = true;
     }
 
+    /** Opens the library from a physical remote's dedicated All Apps key. */
+    void showAllApps() {
+        reset(false);
+        openSheet();
+    }
+
     private void openSheet() {
         notificationsSheet = false;
         sheetOpen = true;

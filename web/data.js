@@ -45,11 +45,17 @@ var Prefs = (function () {
     version: 0,
     language: function () { return pick('language', CONFIG.language || 'auto'); },
     temperature: function () { return pick('temperature', CONFIG.temperature || 'auto'); },
-    theme: function () { return pick('theme', 'auto'); },
+    theme: function () { return pick('theme', CONFIG.theme || 'auto'); },
     weather: function () { return pick('weather', true); },
+    /** OK on the screensaver opens the title it shows, in its app; any other key only closes it (off by default). */
+    saverWatch: function () { return pick('saverWatch', false) === true; },
+    /** The weather card's forecast: 'hours' (the next 6 hours) or 'days' (the next 5 days). */
+    forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
     shelf: function () { return pick('shelf', null); },
+    /** The shelf_apps of the build that last set the shelf, so a new one wins once over the TV's choice. */
+    shelfConfig: function () { return pick('shelfConfig', ''); },
     set: function (name, value) { v[name] = value; save(); this.version++; },
     setCoin: function (i, on) {
       var c = (pick('coins', null) || [true, true, true, true]).slice();
@@ -90,10 +96,15 @@ var Data = (function () {
   // MARK: - Weather
 
   var PLACE = Place.lat + ',' + Place.lon;
+  // Both forecasts in one answer, the next 48 hours and today plus 5 days: Home Settings → Forecast switches without
+  // asking again, and offline too.
+  var QUERY = '&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,weather_code'
+      + '&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=6&forecast_hours=48';
   var weather = null, weatherAt = 0, fetchingWeather = false;
   (function () {
     var w = stored('weather');
-    if (w && w.place === PLACE) { weather = parseWeather(w.body); weatherAt = w.at; }
+    // Fetched with another query (an older version): shown, and fetched again now.
+    if (w && w.place === PLACE) { weather = parseWeather(w.body); weatherAt = w.query === QUERY ? w.at : 0; }
   })();
 
   /** "2026-10-20T18:31" at the location (Open-Meteo's local time) → epoch ms. */
@@ -105,17 +116,25 @@ var Data = (function () {
 
   function parseWeather(o) {
     if (!o || !o.current) return null;
-    var off = o.utc_offset_seconds || 0, now = Date.now();
+    var off = o.utc_offset_seconds || 0, dl = o.daily, now = Date.now();
     var w = {
       temp: o.current.temperature_2m, code: o.current.weather_code, isDay: o.current.is_day !== 0,
-      max: o.daily.temperature_2m_max[0], min: o.daily.temperature_2m_min[0],
-      sunrise: localTime(o.daily.sunrise[0], off), sunset: localTime(o.daily.sunset[0], off), hours: []
+      max: dl.temperature_2m_max[0], min: dl.temperature_2m_min[0],
+      sunrise: localTime(dl.sunrise[0], off), sunset: localTime(dl.sunset[0], off), hours: [], days: []
     };
     var hr = o.hourly;
     for (var i = 0; hr && i < hr.time.length && w.hours.length < 6; i++) {
       var at = localTime(hr.time[i], off);
       if (at <= now) continue;
       w.hours.push({at: at, temp: hr.temperature_2m[i], code: hr.weather_code[i], day: !hr.is_day || hr.is_day[i] !== 0});
+    }
+    // The next 5 days, from tomorrow (none in a forecast cached before the days). Only days that haven't started at
+    // the city: today, and past days in a forecast cached offline, are left out.
+    for (var j = 0; dl.weather_code && j < dl.time.length && w.days.length < 5; j++) {
+      if (localTime(dl.time[j] + 'T12:00', off) - 12 * 3600000 <= now) continue;
+      var p = dl.time[j].split('-');   // named by its noon on the TV's clock, right even with the city far away
+      w.days.push({at: new Date(+p[0], p[1] - 1, +p[2], 12).getTime(), max: dl.temperature_2m_max[j],
+        min: dl.temperature_2m_min[j], code: dl.weather_code[j]});
     }
     return w;
   }
@@ -124,15 +143,52 @@ var Data = (function () {
     var now = Date.now();
     if (fetchingWeather || (now - weatherAt < 30 * 60000 && now >= weatherAt)) return;
     fetchingWeather = true;
-    var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + Place.lat + '&longitude=' + Place.lon
-        + '&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset'
-        + '&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2';
+    var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + Place.lat + '&longitude=' + Place.lon + QUERY;
     get(url, {}, function (err, body) {
       fetchingWeather = false;
       if (err) return;
       weather = parseWeather(body);
       weatherAt = Date.now();
-      store('weather', {place: PLACE, body: body, at: weatherAt});
+      store('weather', {place: PLACE, body: body, at: weatherAt, query: QUERY});
+      changed();
+    });
+  }
+
+  // MARK: - Photo of the day (Bing, no key: the "Photo of the day" theme, shown only without picks)
+
+  var BING = 'https://www.bing.com';
+  var wallpaper = stored('wallpaper'), fetchingWallpaper = false, wallpaperFailedAt = 0;
+
+  /** Bing's own image path ("/th?id=...") on www.bing.com, or '' (another host, "//host", "\\", quotes or spaces). */
+  function bingImage(path) {
+    if (typeof path !== 'string' || !/^\/[^\/\\]/.test(path) || /[\s"'()\\]/.test(path)) return '';
+    try {
+      var u = new URL(path, BING);
+      return u.protocol === 'https:' && u.host === 'www.bing.com' ? u.href : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function refreshWallpaper() {
+    var now = Date.now();
+    if (Prefs.theme() !== 'photo' || KEY || fetchingWallpaper) return;
+    if (wallpaper && now - wallpaper.at < 6 * 3600000 && now >= wallpaper.at) return;
+    if (wallpaperFailedAt && now - wallpaperFailedAt < 30 * 60000 && now >= wallpaperFailedAt) return;
+    fetchingWallpaper = true;
+    // The last 8 days: the newest one Bing allows as a wallpaper ("wp").
+    get(BING + '/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=' + I18N.locale(), {}, function (err, body) {
+      fetchingWallpaper = false;
+      var days = !err && body && body.images, day = null, url = '';
+      for (var i = 0; days && i < days.length && !url; i++) {
+        if (days[i].wp === false) continue;   // Bing: not available as a wallpaper
+        url = bingImage(days[i].url);
+        if (url) day = days[i];
+      }
+      if (!day) { wallpaperFailedAt = Date.now(); return; }
+      wallpaperFailedAt = 0;
+      wallpaper = {url: url, caption: day.copyright || '', at: Date.now()};
+      store('wallpaper', wallpaper);
       changed();
     });
   }
@@ -147,6 +203,11 @@ var Data = (function () {
     store('dollarsFor', CURRENCY);
     CURRENCY = 'USD';
     QUOTE = 'USDT';
+  }
+  /** A pair with no trade for a day: Binance halted it and keeps answering with the frozen last price (AUD since 2026-10-06). */
+  function halted(list) {
+    for (var i = 0; list && i < list.length; i++) if (list[i].closeTime > 0 && Date.now() - list[i].closeTime > 864e5) return true;
+    return false;
   }
   if (stored('dollarsFor') === CURRENCY && CURRENCY !== 'USD') {
     CURRENCY = 'USD';
@@ -194,6 +255,8 @@ var Data = (function () {
         // A pair Binance doesn't list (HTTP 400): the prices go in dollars. Binance.US has only dollar pairs: its 400
         // counts only where Binance.com refuses the US (HTTP 451), not after a timeout or a 5xx there.
         if (err && err.message === 'HTTP 400' && QUOTE !== 'USDT' && (h === 0 || refused)) { fetchingPrices = false; inDollars(); refreshPrices(); return; }
+        // Halted: dollars for this run, not saved like the 400's (the market may open again).
+        if (!err && QUOTE !== 'USDT' && halted(body)) { fetchingPrices = false; CURRENCY = 'USD'; QUOTE = 'USDT'; refreshPrices(); return; }
         if (err || !parsePrices(body)) {
           if (h + 1 < hosts.length && !(err && err.message === 'HTTP 400')) next(h + 1, err && err.message === 'HTTP 451');
           else fetchingPrices = false;
@@ -225,7 +288,8 @@ var Data = (function () {
     ['max', 'max', /hbo|wbd|\.max/, /^(hbo )?max$|hbo max/i, 'Max'],
     ['apple tv', 'appletv', /appletv|apple\.tv/, /apple tv/i, 'Apple TV'],
     ['hotstar', 'hotstar', /hotstar/, /hotstar/i, 'JioHotstar'],
-    ['crunchyroll', 'crunchyroll', /crunchyroll/, /crunchyroll/i, 'Crunchyroll']
+    ['crunchyroll', 'crunchyroll', /crunchyroll/, /crunchyroll/i, 'Crunchyroll'],
+    ['now tv', 'now', /nowtv|now\.tv/, /^now( tv)?$/i, 'NOW']
   ];
 
   var installed = [];   // the TV's apps, from TV.apps()
@@ -241,10 +305,13 @@ var Data = (function () {
     return null;
   }
 
-  function service(providerName) {
+  /** "… Amazon Channel" is sold inside another app; Apple TV is only the streaming service (350; 2 is the store). */
+  function service(providerName, providerId) {
     var n = (providerName || '').toLowerCase();
+    if (n.indexOf(' channel') >= 0) return null;
     for (var i = 0; i < SERVICES.length; i++) {
       var s = SERVICES[i];
+      if (s[1] === 'appletv' && providerId !== 350) continue;
       if (s[0] === 'max' ? /\bmax\b/.test(n) : n.indexOf(s[0]) >= 0) return s;
     }
     return null;
@@ -356,7 +423,7 @@ var Data = (function () {
       var wp = o['watch/providers'], here = wp && wp.results && wp.results[REGION], flat = here && here.flatrate;
       p.app = null;
       for (var i = 0; flat && i < flat.length && !p.app; i++) {
-        var s = service(flat[i].provider_name);
+        var s = service(flat[i].provider_name, flat[i].provider_id);
         if (s && appFor(s[1])) { p.app = s[1]; p.service = s[4]; }
       }
       if (p.service && p.app) parts.push(p.service);
@@ -420,7 +487,7 @@ var Data = (function () {
       if (err) { done(err); return; }
       var ids = [];
       for (var i = 0; res.results && i < res.results.length; i++) {
-        var s = service(res.results[i].provider_name);
+        var s = service(res.results[i].provider_name, res.results[i].provider_id);
         if (s && appFor(s[1])) ids.push(res.results[i].provider_id);
       }
       if (!ids.length) { done(new Error("none of the TV's streaming apps are on TMDB")); return; }
@@ -501,6 +568,9 @@ var Data = (function () {
   // MARK: - Formatting
 
   function fmt(v, digits) {
+    // Old WebKit (Tizen 2) has no Intl: toLocaleString ignores its options and prints every digit, without failing.
+    // English separators there; a per-language table if someone asks.
+    if (typeof Intl === 'undefined') return v.toFixed(digits).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     try { return v.toLocaleString(I18N.locale(), {minimumFractionDigits: digits, maximumFractionDigits: digits}); } catch (e) { return v.toFixed(digits); }
   }
 
@@ -513,7 +583,7 @@ var Data = (function () {
     onChange: function (fn) { listeners.push(fn); },
     setApps: function (apps) { installed = apps; },
     appFor: appFor,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshWallpaper(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     get weather() { return weather; },
     get weatherAt() { return weatherAt; },
@@ -522,6 +592,8 @@ var Data = (function () {
     get pricesAt() { return pricesAt; },
     activeCoins: activeCoins,
     hasKey: function () { return !!KEY; },
+    /** The photo of the day ({url, caption}) when its theme is on and there are no picks; otherwise null. */
+    wallpaper: function () { return Prefs.theme() === 'photo' && !KEY && wallpaper && bingImage(wallpaper.url.slice(BING.length)) ? wallpaper : null; },
     recsError: function () { return recsError; },
     picks: now,
     showcase: all,
@@ -540,6 +612,7 @@ var Data = (function () {
 
     compact: function (v) {
       if (isNaN(v)) return '—';
+      if (v >= 1000000) return fmt(v / 1000000, 2) + 'M';
       if (v >= 10000) return fmt(v / 1000, 1) + 'k';
       if (v >= 1000) return fmt(v / 1000, 2) + 'k';
       if (v >= 100) return fmt(v, 0);
@@ -559,6 +632,11 @@ var Data = (function () {
     },
     /** "3 PM", "15:00", "15 Uhr": the hourly forecast. */
     hour: function (at) { return formatDate('format|h a', at); },
+    /** "Seg", "Mon", "Lun", "Mo", "Пн": the short day of the week, capitalized and without the abbreviation's dot. */
+    weekday: function (at) {
+      var s = formatDate('format|EEE', at).replace(/\.$/, '');
+      return s.charAt(0).toUpperCase() + s.substring(1);
+    },
     /** "5:21 AM", "05:21": the clock, sunrise and sunset. */
     time: function (at) { return formatDate('format|h:mm a', at); },
     /** "12 min ago" when the data is old (no internet), or empty. */

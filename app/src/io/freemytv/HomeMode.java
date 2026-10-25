@@ -326,6 +326,7 @@ final class HomeMode {
 
     private static final String REMOTE_SERVICE = PKG + "/" + PKG + ".RemoteKeyService";
     private static final Pattern SERVICE = Pattern.compile("[\\w.]+/[\\w.$]+");
+    private static final String NOW_PLAYING = PKG + "/" + PKG + ".NowPlaying";
 
     /** Adds ours to the enabled accessibility services (keeping the others, like TalkBack), or takes it out. */
     private static void remoteService(Context c, Adb adb, boolean on) throws IOException {
@@ -355,6 +356,43 @@ final class HomeMode {
         if (on) adb.shell("settings put secure accessibility_enabled 1");
         else if (list.isEmpty() && state(c).optBoolean("accessibilityWasOff")) adb.shell("settings put secure accessibility_enabled 0");
         AppLog.w("remote buttons service " + (on ? "on" : "off"));
+    }
+
+    /** Keep notification access off unless the optional Now Playing widget explicitly needs it. */
+    static void nowPlayingAccess(Context c) {
+        ModeJob.schedule(c, ModeJob.PLAYING, null, 0);
+    }
+
+    static void nowPlayingAccessNow(Context app) {
+        synchronized (RUN) {
+            JSONObject s = state(app);
+            if (!FREE.equals(s.optString("mode")) || s.optBoolean("homeReverted")) return;
+            try (Adb adb = Adb.connect(app, 10_000, null)) {
+                nowPlaying(app, adb, nowPlayingOn());
+            } catch (IOException e) {
+                AppLog.w("now playing: " + e.getMessage());
+            }
+        }
+    }
+
+    private static boolean nowPlayingOn() {
+        Prefs.reload();
+        return Prefs.nowPlaying();
+    }
+
+    private static void nowPlaying(Context c, Adb adb, boolean on) throws IOException {
+        String out = adb.shell("cmd notification " + (on ? "allow_listener " : "disallow_listener ") + NOW_PLAYING).trim();
+        AppLog.w("now playing " + (on ? "on" : "off") + (out.isEmpty() ? "" : ": " + out));
+        if (!on) {
+            Capabilities.forget(c, Capabilities.LISTENER);
+            return;
+        }
+        boolean works = NowPlaying.allowed(c);
+        for (int i = 0; i < 5 && !works; i++) {
+            SystemClock.sleep(200);
+            works = NowPlaying.allowed(c);
+        }
+        Capabilities.prove(c, Capabilities.LISTENER, works);
     }
 
     // MARK: - Switches (main process, from ModeJob)
