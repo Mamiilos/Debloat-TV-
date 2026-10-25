@@ -698,13 +698,13 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, quotes, then one row per coin. */
-        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, COIN_ROWS = 8;
+        /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, forecast, quotes, then one row per coin. */
+        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, FORECAST_ROW = 7, QUOTES_ROW = 8, COIN_ROWS = 9;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
         private boolean dollar() {
-            return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
+            return "BRL".equals(Place.currency());
         }
 
         private String[] settingLabels() {
@@ -716,6 +716,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Navigation sounds"));
             l.add(Ui.tr("Weather widget"));
             l.add(Ui.tr("City"));
+            l.add(Ui.tr("Forecast"));
             l.add(Ui.tr("Quotes widget"));
             l.add("Bitcoin");
             l.add("Ethereum");
@@ -739,7 +740,8 @@ public class SettingsActivity extends Activity {
             v[4] = onOff(Prefs.sounds());
             v[5] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
-            v[7] = onOff(Prefs.quotes());
+            v[FORECAST_ROW] = Prefs.forecast().equals("days") ? Ui.tr("Next days") : Ui.tr("Next hours");
+            v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
@@ -908,6 +910,8 @@ public class SettingsActivity extends Activity {
         }
 
         private String[] keyLabels() {
+            if (RemoteKeys.HISENSE) return new String[] {Ui.tr("Prime Video button"), Ui.tr("YouTube button"),
+                    Ui.tr("Disney+ button"), Ui.tr("All Apps button"), Ui.tr("Settings button"), Ui.tr("Profile button")};
             if (RemoteKeys.STEM_NETFLIX) return new String[] {Ui.tr("Netflix button")};
             if (RemoteKeys.KTC) return new String[] {Ui.tr("Tabii button")};
             if (RemoteKeys.XIAOMI) return new String[] {Ui.tr("Mi button"), Ui.tr("Okko button"), Ui.tr("VK button"),
@@ -945,6 +949,10 @@ public class SettingsActivity extends Activity {
             if (RemoteKeys.XIAOMI) {
                 appPkgs.add(HomeMode.PKG);
                 appLabels.add("Free My TV");
+            }
+            if (RemoteKeys.HISENSE) {
+                appPkgs.add(Prefs.ALL_APPS);
+                appLabels.add(Ui.tr("All Apps"));
             }
             for (String[] f : found) {
                 appPkgs.add(f[0]);
@@ -998,7 +1006,10 @@ public class SettingsActivity extends Activity {
                 case 4: Prefs.setSounds(!Prefs.sounds()); break;
                 case 5: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
-                case 7: Prefs.setQuotes(!Prefs.quotes()); break;
+                case FORECAST_ROW:   // both are in memory: nothing to fetch
+                    Prefs.setForecast(Prefs.forecast().equals("days") ? "hours" : "days");
+                    return;
+                case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
                 default:
                     if (!Prefs.quotes()) return;
                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));
@@ -1281,6 +1292,7 @@ public class SettingsActivity extends Activity {
                         : RemoteKeys.SONY ? Ui.tr("Sony default: the button opens what it always did.")
                         : RemoteKeys.FORMOVIE ? Ui.tr("The other buttons: the TV itself controls them.")
                         : RemoteKeys.XIAOMI ? Ui.tr("Xiaomi default: the button opens what it always did.")
+                        : RemoteKeys.HISENSE ? Ui.tr("Netflix: the TV itself controls that button.")
                         : RemoteKeys.supported() ? Ui.tr("Disney and Globoplay: the TV itself controls those buttons.")
                         : Ui.tr("TCL remote buttons: on this TV they work as always."), LIST_X * k + 30 * k, hy + 38 * k, hint);
             }

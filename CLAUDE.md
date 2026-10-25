@@ -130,6 +130,14 @@ screen stays. Two ways:
 
 ## Releases
 
+Every release carries `FreeMyTV.apk` for Google TV and Android TV, built with `./build.sh --generic` (no
+config.properties: no key, and `Place` takes the city, the currency and the region from the TV's time zone through
+`app/assets/zones.json`) and signed with the project's release key, which lives only on the owner's Mac
+(`~/.freemytv/release.keystore`, its password in the login Keychain as `freemytv-release-apk`):
+`FREEMYTV_KEYSTORE=~/.freemytv/release.keystore FREEMYTV_KEYSTORE_PASS="$(security find-generic-password -s
+freemytv-release-apk -w)" ./build.sh --generic`. Sign every release with that key: Android refuses an update signed
+by another, and people who built their own must uninstall it before installing the release.
+
 TizenBrew Installer takes the first `.wgt` of the latest GitHub release, so every release carries
 `FreeMyTV-tizen.wgt`: built with `--generic` (no config.properties: no key, the city from the time zone) and signed
 with a Tizen certificate (`--sign`), which 2017-2022 TVs install as it is; on 2023+ TVs the installer signs it again
@@ -182,11 +190,12 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   Android 9 and older have no RenderNode (`Recording` wraps it, with a Picture there) and no `cmd role`. On Android 8 to 11
   (`Ui.LEGACY`) the home screen skips the GPU layers, draws blurred shadows from cached bitmaps (`Shadows`) and
   rounds images with a shader instead of clipPath: their GPUs (a Mi Box 3's Mali-450) choked on those.
-  Android 11 runs the screensaver as `ScreensaverAlone`, in the main process (its DreamActivity needs the dream in the
-  app's default process, without a home activity); `res/values-v30/bools.xml` picks it, every other version keeps
-  `Screensaver` in `:home`. Keep both in step. `ScreensaverAlone` reads `Prefs` from another process than the
-  settings screen's, so it calls `Prefs.reload()` when it starts (which also re-applies a new language; `HomeData`
-  fetches the forecast again when the city changed).
+  Android 11 to 12L (API 30–32) run the screensaver as `ScreensaverAlone`, in the main process: AOSP starts their
+  DreamActivity in the app's default process (13 moved it to the dream's own), and it only works with the dream in that
+  process, which can't also hold a home activity (a Sony BRAVIA VH22 on Android 12 crashed with it in `:home`, #94).
+  `res/values-v30` and `values-v31` pick it; Android 8 to 10 and 13 and newer (`values`, `values-v33`) keep
+  `Screensaver` in `:home`. Keep both in step. `ScreensaverAlone` reads `Prefs` from another process than the settings screen's, so it calls `Prefs.reload()`
+  when it starts (which also re-applies a new language; `HomeData` fetches the forecast again when the city changed).
   To check for newer APIs, compile against `platforms/android-26/android.jar`: only AGSL (`RuntimeShader`, guarded
   by a try/catch), `BitmapShader.setFilterMode` (guarded), `Recording.Node` and `Ui.Weighted` (the Android 9 font weight) should come up.
 - The home screen is drawn by hand on one Canvas (`HomeView`); the glass and the sky are AGSL shaders (`Shaders`,
@@ -212,11 +221,13 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   No right-to-left languages yet (the layout isn't mirrored); CJK and Devanagari use the system font.
   Comments in English, short, only where the why isn't obvious.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
+  Built with `--generic`, the place values are empty and `Place` fills them from the TV's time zone
+  (`app/assets/zones.json`, written by `tools/make_zones.py` with `web/zones.js`).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons, Sleep Timer) wins over those first values.
 - Settings rows that need something this TV lacks stay, dimmed as *Unavailable*: `SettingsActivity.need` names what a
   row needs, `Capabilities.missing` says why it's missing (once per screen), and OK on the row shows it in a toast.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL,
-  Vestel, KTC (NextStar), Sony and Xiaomi TVs and Formovie projectors, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
+  Vestel, KTC (NextStar), Sony, Xiaomi and Hisense TVs and Formovie projectors, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
   services. The system waits for the service on every key, so it lives alone in the `:keys` process: what it reads is
   in `remote-keys.txt` (`Prefs.keyApp`), never in SharedPreferences, and `onKeyEvent` does no heavy work.
   Vestel (F&U and other store brands; MediaTek, Android TV 14 tested) maps its Netflix button to `KEYCODE_STEM_1`, a
@@ -241,6 +252,13 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   VK, `_16` for Rutube, `_11` for KION, `_10` for Wink and `_12` for IVI, global keys for Xiaomi's hot-key receiver
   (`com.xiaomi.android.tvsetup.partnercustomizer`, its log: "dealWithHotkey keycode:199"). "Xiaomi default" (empty)
   leaves the key to the TV.
+  Hisense (Q6N, MediaTek, Android TV 12 tested) sends `295` for Prime Video, `KEYCODE_BUTTON_3` for YouTube,
+  `KEYCODE_ALL_APPS` for its All Apps (3×3) button, `KEYCODE_NOTIFICATION` for the gear and `KEYCODE_PROFILE_SWITCH`
+  for the profile button, all global keys for Google TV's home app (`launcherx`), which Free My TV mode turns off, and
+  `607` for Disney+: without the service they do nothing. Netflix (`KEYCODE_STEM_1`) stays with the system. The gear
+  opens TV Settings and All Apps opens our own sheet (`Prefs.ALL_APPS`, `HomeActivity.EXTRA_ALL_APPS`); the profile
+  button has nothing to open without `launcherx`. Hisense keeps only error logs: `adb shell setprop log.tag.FreeMyTV I`
+  before reading `adb logcat -s FreeMyTV`.
   `adb shell input keyevent` doesn't test any of these: injected keys skip the accessibility key filter.
 - HY300 projectors (Hotack, Allwinner H713, Android 11 tested; the build claims to be an `askey`/`adt3`): the stock
   home screen and screensaver are `com.htc.htclauncherhighenglishd08`, which also carries an ad SDK (`com.zeasn.ad`).
@@ -255,6 +273,12 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   empty, a black screen. Their adb shell runs as root, so the switch sets the property (`HomeMode.JM_HOME`) and only
   then turns the HTC home off; Original and the watchdog put both back. Wireless debugging's port changes and turns
   itself off, but adb also listens on 5555 there.
+- Xiaomi's Chinese firmware (MIUI TV; Redmi `MiTV-MFTP0`, Android 9 tested) has no passthrough handler either: its own
+  `com.xiaomi.mitv.tvplayer/.ExternalSourceActivity` (action `com.xiaomi.mitv.tvplayer.EXTSRC_PLAY`) opens a port from
+  an `input` extra (HDMI 1 to 3 are 23 to 25; there is no number for a fourth), so `inputs` keeps HDMI 1 to 3 there.
+- MediaTek TVs that list one hardware tuner input per mode (Haier H32S80EFX, Google TV 14: `AnalogInputService/HW1`,
+  `CableInputService/HW0`, `TunerInputService/HW0`, in no fixed order): Live TV tunes the digital antenna's
+  (`HomeApps.tunerRank`), then cable's, then analog's.
 - After any change, `./build.sh` must end with `Built FreeMyTV.apk`.
 - LG and Samsung (`web/`): plain ES5 JavaScript and CSS without variables, grid or backdrop-filter, since older TVs
   (webOS 3 and 4, Tizen 3) run a Chromium from 2015 to 2017; only transform and opacity animate. `web/tv.js` is the

@@ -36,8 +36,11 @@ final class HomeMode {
     static final String PKG = "io.freemytv";
     static final String HOME_ACTIVITY = PKG + "/" + PKG + ".HomeActivity";
     static final String SETTINGS_ACTIVITY = PKG + "/" + PKG + ".SettingsActivity";
-    /** Our screensaver: on Android 11 the copy that runs in the main process (ScreensaverAlone, #10). */
-    static final String DREAM = PKG + "/" + PKG + (Build.VERSION.SDK_INT == 30 ? ".ScreensaverAlone" : ".Screensaver");
+    /** Our screensaver: on Android 11 to 12L the copy that runs in the main process (ScreensaverAlone, #10). */
+    private static final boolean DREAM_ALONE = Build.VERSION.SDK_INT >= 30 && Build.VERSION.SDK_INT <= 32;
+    static final String DREAM = PKG + "/" + PKG + (DREAM_ALONE ? ".ScreensaverAlone" : ".Screensaver");
+    /** The other copy: an update (ours or the TV's) moves the setting from it, without a notice. */
+    private static final String OTHER_DREAM = PKG + "/" + PKG + (DREAM_ALONE ? ".Screensaver" : ".ScreensaverAlone");
     static final String FREE = "free", ORIGINAL = "original";
 
     /**
@@ -130,11 +133,12 @@ final class HomeMode {
         "com.mediatek.overlay.tvsettings", "com.homwee.overlay.tvservice", "com.homwee.synckey", "com.homwee.upgrade",
         "com.homwee.dmt.upgrade", "com.homwee.factory", "com.homwee.chinstallapk", "com.homwee.chtvmanager",
         "com.mstar.android.tv.disclaimercustomization",
-        // Xiaomi (MediaTek): system service, remote pairing, live TV, quick settings, child lock, updates, casting
+        // Xiaomi (MediaTek): system service, remote pairing, live TV, quick settings, child lock, updates, casting, HDMI player (MIUI TV)
         "mitv.service", "com.mi.bluetooth", "com.mitv.livetv.ci_mediatek", "com.xiaomi.tvqs.overseas",
         "com.mitv.tvlock", "com.xiaomi.mitv.updateservice", "com.xiaomi.android.tvsetup.partnercustomizer",
         "com.mitv.overseaservice", "com.xiaomi.mitv.tvmanager", "com.xiaomi.wfdsinkhelperservice",
         "com.mitv.milinkservice", "com.xiaomi.mitv.smartshare", "android.autoinstalls.config.xiaomi.amelie",
+        "com.xiaomi.mitv.tvplayer",
         // Skyworth (MediaTek): live TV, remote pairing and keys, setup, service menu, casting, OLED care, boot
         "com.smartdevice.livetv", "com.smartdevice.livetv.overlay_SANLUX", "com.smartdevice.bleconnectservice",
         "com.smartdevice.duplebluetooth", "com.smartdevice.myapp", "com.smartdevice.setupwraith",
@@ -240,7 +244,7 @@ final class HomeMode {
 
     /**
      * The remote's app buttons (RemoteKeys) need an accessibility service that only filters those keys. It is on only
-     * on TCL, Vestel, KTC, Sony and Xiaomi TVs (and Formovie projectors) in Free My TV mode, and goes off with Original. Android turns it off when this app is updated, so the
+     * on TCL, Vestel, KTC, Sony, Xiaomi and Hisense TVs (and Formovie projectors) in Free My TV mode, and goes off with Original. Android turns it off when this app is updated, so the
      * boot check and an update turn it back on.
      */
     static void ensureRemoteService(Context c, long delayMs) {
@@ -685,10 +689,11 @@ final class HomeMode {
                     adb.shell("cmd package set-home-activity " + HOME_ACTIVITY);
                     fixed.add(Ui.tr("the home screen"));
                 }
-                // Whole component names: ".ScreensaverAlone" (Android 11) contains ".Screensaver" (12 and newer).
-                if (!reverted && !Arrays.asList(adb.shell("settings get secure screensaver_components").trim().split(",")).contains(DREAM)) {
+                // Whole component names: ".ScreensaverAlone" (Android 11 to 12L) contains ".Screensaver" (the others).
+                List<String> savers = Arrays.asList(adb.shell("settings get secure screensaver_components").trim().split(","));
+                if (!reverted && !savers.contains(DREAM)) {
                     adb.shell("settings put secure screensaver_components " + DREAM);
-                    fixed.add(Ui.tr("the screensaver"));
+                    if (!savers.contains(OTHER_DREAM)) fixed.add(Ui.tr("the screensaver"));   // ours, moved: not the TV
                 }
                 record(adb, disabled);
                 JSONObject latest = state(app);
