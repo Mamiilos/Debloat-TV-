@@ -111,10 +111,16 @@ var TV = (function () {
   // A 2020 TU8000 (Tizen 5.5) ships Prime Video as org.tizen.primevideo, next to a -dummy and a _companionapp.
   // A 2023 Q60C (Tizen 9 in Brazil) ships Globoplay as org.tizen.globoplayapp.
   var SAMSUNG_HIDDEN = new RegExp('^(org\\.volt\\.|org\\.tizen\\.(?!browser$|netflix|primevideo$|globoplay)|org\\.tizen\\.netflixlowmem$|ise-|ug-|d75857a5-)' +
-      '|[Ss]ervice$|[Dd]aemon|Preview$|syspopup|[Hh]elper$|AdPlayer|AdSuite|[Kk]eyboard|\\.OTApp$' +
+      '|[Ss]ervice$|[Dd]aemon|Preview$|syspopup|[Hh]elper$|AdPlayer|AdSuite|[Kk]eyboard|\\.OTApp$|\\.emanual$' +
       '|^com\\.samsung\\.(calendar-account-manager|tv\\.(cobalt-|aria-(dummy|engine)|airplay-app|ambient-support|' +
       'built-in-app-info-viewer|commonsearch|searchall|preview-|tv-scheduler|csfs|notification-app|mycontents|' +
       'safLaunchBridge|shortcut|remote-workspace|voiceassistant|mybixby|weather-viewer))');
+
+  // A 2024 Q60D (Tizen 9) lists a hundred more of Samsung's pieces as apps to show (CoBA*, Wizard, hotel and test
+  // tools), so past SAMSUNG_HIDDEN an app also has to be the store's (a 10-character package id, a dot, a name:
+  // 9Ur5IzDKqV.TizenYouTube, which apps installed in Developer Mode have too) or one of the TV's own named here.
+  var SAMSUNG_STORE = /^[A-Za-z0-9]{10}\.\w+$/;
+  var SAMSUNG_BUILT_IN = /^(org\.tizen\.|com\.samsung\.tv\.aria-video$)/;
 
   // Samsung apps whose iconPath is Tizen's generic pinwheel (a valid image, so onerror never fires): our own icons.
   // Seen on a 2018 NU7675 (Tizen 4); Smart Hub draws their real icons from a folder apps can't read. On a 2017
@@ -208,7 +214,8 @@ var TV = (function () {
         var ids = ((window.CONFIG || {}).shelfApps || []).filter(function (w) { return w.indexOf('.') > 0; });
         for (var i = 0; i < list.length; i++) {
           var a = list[i];
-          if (!a.id || a.id === self || SAMSUNG_HIDDEN.test(a.id) || (a.show === false && ids.indexOf(a.id) < 0)) continue;
+          if (!a.id || a.id === self || SAMSUNG_HIDDEN.test(a.id)) continue;
+          if (ids.indexOf(a.id) < 0 && (a.show === false || !(SAMSUNG_STORE.test(a.id) || SAMSUNG_BUILT_IN.test(a.id)))) continue;
           out.push(samsungApp(a));
         }
         ids.forEach(function (id) {
@@ -401,6 +408,9 @@ var TV = (function () {
 
     /** LG: keeps the TV's screensaver away while ours will take over (`hold` says when). */
     holdScreenSaver: holdScreenSaver,
+
+    /** Samsung's list is only the store's apps and a few of the TV's own, so all of them go on the shelf. */
+    allOnShelf: samsung,
 
     /** Back on the first screen: back to wherever the person came from. */
     back: function () {

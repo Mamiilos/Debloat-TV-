@@ -270,6 +270,13 @@
       for (var i = 0; i < chosen.length; i++) {
         for (var j = 0; j < apps.length; j++) if (apps[j].id === chosen[i]) out.push(apps[j]);
       }
+      if (TV.allOnShelf) {
+        var seen = Prefs.shelfSeen();
+        if (!seen) Prefs.set('shelfSeen', appIds());
+        else {
+          for (var n = 0; n < apps.length; n++) if (seen.indexOf(apps[n].id) < 0 && out.indexOf(apps[n]) < 0) out.push(apps[n]);
+        }
+      }
     } else if (WANTED.length) {
       for (var w = 0; w < WANTED.length; w++) {
         for (var k = 0; k < apps.length; k++) {
@@ -279,16 +286,19 @@
       }
       if (!out.length) out = apps.slice(0, FEW_APPS);
     } else {
-      for (var s = 0; s < SHELF.length && out.length < FEW_APPS; s++) {
+      for (var s = 0; s < SHELF.length && (TV.allOnShelf || out.length < FEW_APPS); s++) {
         for (var a = 0; a < apps.length; a++) {
           if ((SHELF[s][1].test(apps[a].id) || SHELF[s][2].test(apps[a].title)) && out.indexOf(apps[a]) < 0) { out.push(apps[a]); break; }
         }
       }
+      if (TV.allOnShelf) out = out.concat(apps.filter(function (x) { return out.indexOf(x) < 0; }));
       if (!out.length) out = apps.slice(0, FEW_APPS);
     }
     shelf = out;
     others = apps.filter(function (x) { return shelf.indexOf(x) < 0; });
   }
+
+  function appIds() { return apps.map(function (x) { return x.id; }); }
 
   // MARK: - Focus
 
@@ -848,6 +858,7 @@
       ids.splice(to, 0, app.id);
     }
     Prefs.set('shelf', ids);
+    Prefs.set('shelfSeen', appIds());
     pickShelf();
     renderShelf();
     var again = editList();
