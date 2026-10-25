@@ -230,6 +230,8 @@ It's your code, and Claude Code finds its way around it. Try:
 - *"Add Catalan."*
 - *"Switch to the night look an hour after sunset."*
 
+**Wallpapers (LG and Samsung).** `wallpapers=true` in `config.properties` puts open-licensed photos behind the home screen: Wikimedia Commons featured pictures, each credited on screen, a new one every `wallpaper_minutes`. `wallpaper_topics` picks from landscapes, mountains, coasts, forests and astronomy. They're chosen when you build, and the screensaver shows them too when there are no picks.
+
 ## How it works
 
 - **A plain Android app, no Gradle, no libraries.** [`build.sh`](build.sh) runs aapt2 → javac → d8 → zipalign → apksigner and makes a 2 MB APK.
