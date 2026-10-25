@@ -105,6 +105,14 @@ def files(config, made_by):
     for name in ('InterVariable.ttf', 'OFL.txt'):
         with open(os.path.join(ROOT, 'app', 'assets', 'fonts', name), 'rb') as f:
             out['fonts/' + name] = f.read()
+    # The Cinema theme's font: web/fonts/InterWeb.woff2, a cut of InterVariable.ttf (203 KB instead of 880 KB): weights
+    # 200 to 700, the scripts the catalogues and titles use, no hinting. Made with fontTools:
+    #   fonttools varLib.instancer InterVariable.ttf wght=200:700 -o inter.ttf
+    #   pyftsubset inter.ttf --unicodes="U+0000-024F,U+0259,U+02B0-02FF,U+0300-036F,U+0370-03FF,U+0400-04FF,U+1E00-1EFF,
+    #     U+2000-206F,U+20A0-20CF,U+2100-214F,U+2190-21FF,U+2212,U+2215,U+25CF,U+FEFF,U+FFFD"
+    #     --layout-features='kern,liga,calt,tnum,ccmp,locl,mark,mkmk' --no-hinting --flavor=woff2
+    with open(os.path.join(web, 'fonts', 'InterWeb.woff2'), 'rb') as f:
+        out['fonts/InterWeb.woff2'] = f.read()
     return out
 
 
