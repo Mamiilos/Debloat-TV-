@@ -120,7 +120,7 @@ def build(preview, config, generic=False):
     if apps:
         print('With the TV\'s app list from webos/apps.py (%d apps).' % len(apps))
     if not config['tmdbKey']:
-        print('No TMDB key: the picks stay off (everything else works).')
+        print("No TMDB key: the picks stay off (everything else works), or come from Stremio's catalogue with stremio=true.")
 
 
 if __name__ == '__main__':

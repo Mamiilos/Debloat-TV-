@@ -315,11 +315,13 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', ABOUT: 'about'};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', ABOUT: 'about',
+    LINK: 'link'};
   var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.ABOUT; }
+  function sheetOpen() { return isSheet(st.zone); }
+  function isSheet(z) { return z === Z.APPS || z === Z.SETTINGS || z === Z.EDIT || z === Z.LANG || z === Z.ABOUT || z === Z.LINK; }
 
   function updateFocus() {
     var i, list;
@@ -329,8 +331,8 @@
       setClass(list[i], 'focus', st.zone === Z.TOP && st.top === i);
     }
     list = $('buttons').children;
-    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
-    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === tabs.length + i);
+    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= tabs.length);
     list = $('cards').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
     list = $('tiles').children;
@@ -375,15 +377,40 @@
 
   // MARK: - Top: title, tabs, buttons, quotes
 
-  var TAB_KIND = [null, 'movie', 'tv'];
+  /**
+   * The tabs: Stremio's Continue Watching first, when the person signed in to Stremio and is in the middle of
+   * something; then the picks' three (Explore, Movies, Shows), unless nothing fills them (no TMDB key, no Stremio).
+   */
+  function tabList() {
+    var out = [];
+    if (Data.stremio() && Stremio.items().length) out.push({kind: 'stremio'});
+    if (Data.hasPicks() || !out.length) out.push({kind: null}, {kind: 'movie'}, {kind: 'tv'});
+    return out;
+  }
+
+  var tabs = tabList();
+
+  /** The tabs again (Stremio's list came or went), on the same tab when it's still there. */
+  function retab() {
+    var kind = tabs[st.tab] ? tabs[st.tab].kind : null, next = tabList(), same = next.length === tabs.length;
+    for (var i = 0; same && i < next.length; i++) same = next[i].kind === tabs[i].kind;
+    if (same) return false;
+    var top = st.zone === Z.TOP && st.top >= tabs.length ? st.top - tabs.length : -1;
+    tabs = next;
+    st.tab = 0;
+    for (var j = 0; j < tabs.length; j++) if (tabs[j].kind === kind) st.tab = j;
+    if (st.zone === Z.TOP) st.top = top >= 0 ? tabs.length + top : st.tab;
+    renderTop();
+    return true;
+  }
 
   function renderTop() {
     $('title').textContent = tr('For You');
-    var tabs = $('tabs');
-    tabs.innerHTML = '';
-    var names = [tr('Explore'), tr('Movies'), tr('Shows')];
-    for (var i = 0; i < 3; i++) {
-      var t = el('button', 'tab', tabs, names[i]);
+    var row = $('tabs');
+    row.innerHTML = '';
+    for (var i = 0; i < tabs.length; i++) {
+      var t = el('button', 'tab', row, tabs[i].kind === null ? tr('Explore') : tabs[i].kind === 'movie' ? tr('Movies')
+          : tabs[i].kind === 'tv' ? tr('Shows') : tr('Continue Watching'));
       hover(t, Z.TOP, i);
     }
     var buttons = $('buttons');
@@ -394,7 +421,7 @@
       r.style.left = (1596 + 88 * b) + 'px';
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
-      hover(r, Z.TOP, 3 + b);
+      hover(r, Z.TOP, tabs.length + b);
     }
   }
 
@@ -411,11 +438,15 @@
   // MARK: - Picks and background
 
   function renderCards() {
-    var list = Data.picks(TAB_KIND[st.tab]);
+    var kind = tabs[st.tab] ? tabs[st.tab].kind : null;
+    var list = kind === 'stremio' ? Stremio.items().slice(0, 3) : Data.picks(kind);
     var holder = $('cards');
     setClass(body, 'no-picks', !list.length);
     var same = list.length === cards.length;
-    for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta;
+    for (var i = 0; same && i < list.length; i++) {
+      same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta
+          && list[i].progress === cards[i].progress;
+    }
     if (same && holder.children.length === list.length) return;
     cards = list;
     holder.innerHTML = '';
@@ -425,14 +456,17 @@
       card.style.left = rects[c][0] + 'px';
       card.style.width = rects[c][1] + 'px';
       var img = el('div', 'img', card);
-      img.style.backgroundImage = 'url(' + Data.image(p.backdrop, c === 0 ? 'w1280' : 'w780') + ')';
+      var pic = p.stremio ? (c === 0 ? p.art : p.poster) : Data.image(p.backdrop, c === 0 ? 'w1280' : 'w780');
+      if (pic) img.style.backgroundImage = 'url(' + pic + ')';   // none: the card's plain color
+      // How far along: a bar over the bottom of the photo, as on Stremio.
+      if (p.progress > 0) el('div', 'fill', el('div', 'bar', img)).style.width = Math.round(p.progress * 100) + '%';
       el('div', 'name', card, p.title);
       if (c === 0 && p.meta) el('div', 'meta', card, p.meta);
       hover(card, Z.CARDS, c);
     }
     st.card = Math.min(st.card, Math.max(0, list.length - 1));
     if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
-    backdrop(list.length ? Data.image(list[0].backdrop, 'w300') : '');
+    backdrop(!list.length ? '' : list[0].stremio ? list[0].art : Data.image(list[0].backdrop, 'w300'));
     updateFocus();
   }
 
@@ -691,6 +725,8 @@
     setClass($('shelfedit'), 'open', false);
     setClass($('langpick'), 'open', false);
     setClass($('about'), 'open', false);
+    setClass($('stremiolink'), 'open', false);
+    Stremio.cancelLink();
     langHint = null;
     st.zone = Z.SHELF;
     updateFocus();
@@ -707,11 +743,11 @@
       {label: tr('Temperature'), value: unit === 'C' ? '°C' : unit === 'F' ? '°F' : tr('unit|Automatic'),
         step: function (d) { cycle('temperature', ['auto', 'C', 'F'], unit, d); renderPanels(); }},
       {label: tr('Theme'), value: theme === 'light' ? tr('Light') : theme === 'dark' ? tr('Dark')
-          : theme === 'photo' && !Data.hasKey() ? tr('Photo of the day') : auto,
+          : theme === 'photo' && !Data.hasPicks() ? tr('Photo of the day') : auto,
         step: function (d) {
           // The photo of the day shows only without picks (with them, the first pick's photo is the background).
           // Bing is asked when Settings closes, not while arrowing past the theme.
-          cycle('theme', Data.hasKey() ? ['auto', 'light', 'dark'] : ['auto', 'light', 'dark', 'photo'], theme, d);
+          cycle('theme', Data.hasPicks() ? ['auto', 'light', 'dark'] : ['auto', 'light', 'dark', 'photo'], theme, d);
           renderPhoto();
           checkNight();
         }},
@@ -731,6 +767,19 @@
         rows.push({label: names[i], toggle: Prefs.quotes() && Prefs.coin(i), dim: !Prefs.quotes(),
           step: function () { if (Prefs.quotes()) { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); } }});
       })(i);
+    }
+    // Stremio: shown on TVs that have it (or while it's on), off until turned on; then its account below.
+    if (Prefs.stremio() || Stremio.app(apps)) {
+      rows.push({label: 'Stremio', toggle: Prefs.stremio(), stremio: true,
+        step: function () { Prefs.set('stremio', !Prefs.stremio()); stremioChanged(); }});
+      // OK only: the arrows don't sign out.
+      if (Prefs.stremio()) {
+        rows.push({label: tr('Stremio account'), value: Stremio.connected() ? tr('Sign out') : tr('Sign in'), opens: true, account: true,
+          okOnly: true, step: function (d) {
+            if (d < 0) return;
+            if (Stremio.connected()) { Stremio.signOut(); retab(); renderCards(); } else openLink();
+          }});
+      }
     }
     rows.push({label: tr('Shelf'), value: '›', shelf: true, step: function (d) { if (d >= 0) openShelfEdit(); }});
     rows.push({label: tr('About this TV'), value: '›', about: true, step: function (d) { if (d >= 0) openAbout(); }});
@@ -930,7 +979,81 @@
     renderShelfEdit();
   }
 
+  // MARK: - Stremio sign-in: a code to approve on a phone, as on Stremio's own TV apps
+
+  var linkState = {};
+
+  function renderLink(state) {
+    linkState = state;
+    var box = $('stremiolink').firstChild;
+    box.innerHTML = '';
+    el('div', 'title', box, 'Stremio');
+    el('div', 'say', box, trf('On your phone, open {url} and type this code.', {url: 'link.stremio.com'}));
+    var pair = el('div', 'pair', box);
+    if (state.qr && !state.error) el('img', 'qr', pair).src = state.qr;
+    el('div', 'code', pair, state.code && !state.error ? state.code : '····');
+    el('div', 'hint', box, state.error || (state.code ? tr('Waiting for your approval…') : ''));
+  }
+
+  function openLink() {
+    setClass($('settings'), 'open', false);
+    st.zone = Z.LINK;
+    setClass($('stremiolink'), 'open', true);
+    updateFocus();
+    startLink();
+  }
+
+  function startLink() {
+    renderLink({});
+    Stremio.startLink(function (state) {
+      if (st.zone !== Z.LINK) return;
+      if (!state.done) { renderLink(state); return; }
+      closeLink();
+      toast(tr('Stremio is connected.'));
+    });
+  }
+
+  /** Back to Home Settings, on the Stremio account row. */
+  function closeLink() {
+    Stremio.cancelLink();
+    setClass($('stremiolink'), 'open', false);
+    openSettings();
+    for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].account) st.row = i;
+    updateFocus();
+  }
+
+  /** Stremio turned on or off: its tab and the picks from its catalogue come or go. */
+  function stremioChanged() {
+    Stremio.refresh(true);
+    Data.refresh();
+    retab();
+    renderCards();
+    renderPhoto();   // the photo of the day shows only without picks
+    checkNight();
+  }
+
   // MARK: - Opening things
+
+  /**
+   * Stremio opens on its own home screen (it takes no title to open), where the title is in Continue Watching. LG
+   * says so over Stremio; where the TV can't, our own note shows first, for a moment, before Stremio covers it.
+   */
+  var opening = false;
+
+  function openStremio(p) {
+    var app = Stremio.app(apps), name = app ? app.title : 'Stremio', note = trf('{title} is in Continue Watching.', {title: p.title});
+    function open() {
+      TV.launch(app ? app.id : 'io.strem.tv', null, function (ok) {
+        if (!ok) { toast(trf("Couldn't open {app}.", {app: name})); return; }
+        if (TV.name === 'webos') TV.notify(note);
+      });
+    }
+    if (TV.name === 'webos') { open(); return; }
+    if (opening) return;   // a second OK while the note shows
+    opening = true;
+    toast(note);
+    setTimeout(function () { opening = false; open(); }, 1500);
+  }
 
   function launcher(id, name) {
     return function () {
@@ -954,14 +1077,15 @@
   function activate() {
     switch (st.zone) {
       case Z.TOP:
-        if (st.top < 3) return;
-        if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
-        else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
+        if (st.top < tabs.length) return;
+        if (st.top === tabs.length) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
+        else if (st.top === tabs.length + 1) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
         else openSettings();
         return;
       case Z.CARDS:
-        var p = cards[st.card], app = p && Data.appFor(p.app);
-        if (app) launcher(app.id, app.title)();
+        var p = cards[st.card], app = p && !p.stremio && Data.appFor(p.app);
+        if (p && p.stremio) openStremio(p);
+        else if (app) launcher(app.id, app.title)();
         return;
       case Z.SHELF:
         if (shelf[st.shelf]) launcher(shelf[st.shelf].id, shelf[st.shelf].title)();
@@ -983,6 +1107,9 @@
         return;
       case Z.ABOUT:
         closeAbout();
+        return;
+      case Z.LINK:
+        if (linkState.error) startLink();   // a new code, after an error or once it expired
         return;
     }
   }
@@ -1011,10 +1138,10 @@
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(0, Math.min(5, st.top + dx));
-          if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
+          st.top = Math.max(0, Math.min(tabs.length + 2, st.top + dx));
+          if (st.top < tabs.length) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
+          if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < tabs.length ? 0 : cards.length - 1); }
           else st.zone = Z.SHELF;
         }
         break;
@@ -1030,7 +1157,7 @@
         if (dy) st.row = Math.max(0, Math.min(rowsNow.length - 1, st.row + dy));
         else if (dx && rowsNow[st.row]) {
           var r = rowsNow[st.row];
-          if (r.value !== '›') { r.step(dx); if (st.zone === Z.SETTINGS) renderSettings(); }
+          if (r.value !== '›' && !r.okOnly) { r.step(dx); if (st.zone === Z.SETTINGS) renderSettings(); }
         }
         break;
       case Z.EDIT:
@@ -1054,6 +1181,7 @@
     }
     if (st.zone === Z.LANG) { closeLanguages(false); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.LINK) { closeLink(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
@@ -1063,12 +1191,12 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.ABOUT))) return;
+      if (saverOn || sheetOpen() !== isSheet(zone)) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
       st.zone = zone;
-      if (zone === Z.TOP) { st.top = index; if (index < 3) selectTab(index); }
+      if (zone === Z.TOP) { st.top = index; if (index < tabs.length) selectTab(index); }
       else if (zone === Z.CARDS) st.card = index;
       else if (zone === Z.SHELF) st.shelf = index;
       else if (zone === Z.DRAWER) st.drawer = index;
@@ -1231,6 +1359,7 @@
   // MARK: - Start
 
   function renderAll() {
+    retab();   // the TV listed its apps: Stremio's catalogue may fill the picks now
     renderTop();
     renderQuotes();
     cards = [];
@@ -1274,8 +1403,15 @@
     updateFocus();
   }
 
+  Stremio.onChange(function () {
+    retab();
+    renderCards();
+    if (st.zone === Z.SETTINGS) renderSettings();
+  });
+
   Data.onChange(function () {
     renderQuotes();
+    retab();   // the picks came, or Stremio's catalogue can fill them now that the TV listed its apps
     renderCards();
     renderPanels();
     renderPhoto();
@@ -1295,6 +1431,7 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) { hideSaver(); return; }
     idleAt = Date.now();
+    Stremio.refresh(true);   // back from Stremio, maybe further along
     loadApps(function () { renderShelf(); renderDrawer(); updateFocus(); Data.refresh(); });
   });
 
@@ -1306,12 +1443,17 @@
   renderTop();
   tickClock();
   loadApps(function () {
+    // The tabs as they'll stay, now that the TV listed its apps (Stremio's tab needs Stremio), from the first one.
+    tabs = tabList();
+    st.tab = 0;
     renderAll();
     Data.refresh();
+    Stremio.refresh(true);
   });
   setInterval(function () {
     checkNight();
     Data.refresh();
+    Stremio.refresh();
     if (!saverOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) showSaver();
     if (saverOn) tickSaverClock($('saver').querySelector('.clock'));
   }, 30000);

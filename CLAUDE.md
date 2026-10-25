@@ -49,7 +49,7 @@ before you do it, and let them do the taps on the TV.
    after `tmdb_key=` in `config.properties` themselves. Don't ask for it in the chat, never print it, never commit
    it. If they paste it in the chat anyway, put it only in `config.properties`.
    Without a key everything works except the picks and their photos on the screensaver (photos they send themselves
-   still show).
+   still show; on LG and Samsung with the Stremio setting on, the picks come from Stremio's catalogue).
    The same goes for the optional `watchmode_key` (free, watchmode.com; makes picks open the title's page): theirs, secret, only in `config.properties`.
 5. **Build:** `./build.sh` → `FreeMyTV.apk`. Keep `freemytv.keystore`: updates must be signed with the same key.
 6. **Install:** `adb connect <IP>:5555`. The TV asks *Allow USB debugging?*: tell them to accept and tick *Always
@@ -361,5 +361,15 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   `formatDate('format|h:mm a', at)` (the catalogue's SimpleDateFormat pattern, written by `web/strings.js`), and
   `tools/translate.py` reads those calls too. Built without a city (`--generic`), `web/zones.js`
   (`tools/make_zones.py`, from the tz database) turns the TV's time zone into the city, the currency and the region.
-  `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
+  `tools/webapp.py` is what both builds share.
+  Stremio (`web/stremio.js`): off by default (`stremio=false`, `Prefs.stremio()`); off, nothing talks to Stremio and
+  the home screen is as without it. The Home Settings row shows on TVs that have Stremio. On, *Stremio account* signs
+  in with a code approved at link.stremio.com on a phone (no password on the TV; the session key stays in the TV's
+  localStorage, and turning Stremio off keeps it), and the picks' first tab becomes Stremio's Continue Watching
+  (`datastoreGet` on api.strem.io). Stremio's LG app (`io.strem.tv`) takes no title to open, so a card opens Stremio
+  and LG's toast names the title. On, without a TMDB key, the picks and the screensaver come from Stremio's catalogue,
+  Cinemeta (popular and this year's releases; no key, English titles, IMDb genres as `genre|…` keys), and open
+  Stremio. link.stremio.com refuses `Origin: null` (a desktop browser's
+  file:// page): preview over http (`python3 -m http.server` in `out/webos`); LG's app sends file:// and works.
+  Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).

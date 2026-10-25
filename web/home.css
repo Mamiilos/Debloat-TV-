@@ -286,6 +286,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   font-weight: 500;
   color: #6E6E73;
 }
+/* Stremio's Continue Watching: how far along, over the bottom of the photo. */
+.card .bar { position: absolute; left: 22px; right: 22px; bottom: 20px; height: 7px; border-radius: 4px; overflow: hidden; background: rgba(255, 255, 255, 0.36); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3); }
+.card .bar .fill { height: 100%; border-radius: 4px; background: #FFF; }
 .night .card .img { background-color: #2C2C2E; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32); }
 .night .card .name { color: #F5F5F7; }
 .night .card .meta { color: rgba(245, 245, 247, 0.62); }
@@ -503,7 +506,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .cell.focus .face { -webkit-transform: scale(1.08); transform: scale(1.08); box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(255, 255, 255, 0.4); }
 .cell.focus .label { color: #FFF; }
 
-#settings .box, #shelfedit .box, #langpick .box, #about .box {
+#settings .box, #shelfedit .box, #langpick .box, #about .box, #stremiolink .box {
   position: absolute;
   left: 560px;
   top: 150px;
@@ -532,6 +535,12 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .toggle::after { content: ''; position: absolute; left: 4px; top: 4px; width: 36px; height: 36px; border-radius: 18px; background: #FFF; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); -webkit-transition: -webkit-transform 0.14s; transition: transform 0.14s; }
 .toggle.on { background: #3FD69B; }
 .toggle.on::after { -webkit-transform: translateX(34px); transform: translateX(34px); }
+
+/* Stremio sign-in: the code to type at link.stremio.com, beside its QR code. */
+#stremiolink .say { padding: 0 18px; font-size: 28px; font-weight: 500; line-height: 1.35; color: rgba(255, 255, 255, 0.82); }
+#stremiolink .pair { position: relative; height: 300px; margin: 26px 18px 6px; }
+#stremiolink .qr { position: absolute; left: 0; top: 0; width: 276px; height: 276px; padding: 12px; border-radius: 22px; background: #FFF; }
+#stremiolink .code { position: absolute; left: 330px; right: 0; top: 96px; font-size: 104px; font-weight: 700; letter-spacing: 0.14em; line-height: 1; font-feature-settings: 'tnum'; }
 
 /* MARK: - Screensaver: the picks' photos, slowly moving, and a clock */
 
