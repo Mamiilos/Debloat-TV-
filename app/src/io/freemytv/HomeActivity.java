@@ -9,6 +9,8 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.widget.TextView;
 
+import java.lang.reflect.Method;
+
 /**
  * The Free My TV home screen (Android's "Home" role in Free My TV mode). It runs in the :home process: if it crashes,
  * the safety net in the main process keeps working. On the 3rd crash within 5 min, the Watchdog gives the home screen
@@ -46,6 +48,7 @@ public class HomeActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        cover();
         if (prefsVersion != Prefs.version) {
             prefsVersion = Prefs.version;
             HomeData.get(this).settingsChanged();
@@ -66,6 +69,34 @@ public class HomeActivity extends Activity {
         if (home == null) return;
         if (intent.getBooleanExtra(EXTRA_ALL_APPS, false)) home.showAllApps();
         else home.reset(true);
+    }
+
+    /** Activity.convertFromTranslucent (public, hidden from the SDK); null once it turned out not to be there. */
+    private static Method opaque;
+    private static boolean opaqueLooked;
+
+    /**
+     * Tells the system this home screen covers the whole screen. TCL's Android 11 (Smart TV Pro) records the home
+     * activity as translucent (occludesParent=false) whatever its theme says, and Android then keeps the app you left
+     * visible, layered above the home screen (home tasks sit at the bottom): Home "did nothing" from YouTube or Prime
+     * Video, though this screen had the focus. Where the home screen already covers the screen, nothing changes.
+     */
+    private void cover() {
+        if (!opaqueLooked) {
+            opaqueLooked = true;
+            try {
+                opaque = Activity.class.getMethod("convertFromTranslucent");
+            } catch (NoSuchMethodException | RuntimeException e) {
+                AppLog.w("home: can't tell the system it covers the screen: " + e);
+            }
+        }
+        if (opaque == null) return;
+        try {
+            opaque.invoke(this);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            opaque = null;
+            AppLog.w("home: can't tell the system it covers the screen: " + e);
+        }
     }
 
     @Override protected void onDestroy() {

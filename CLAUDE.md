@@ -206,6 +206,11 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   size, so both draw pixel for pixel.
 - `HomeMode` runs every switch as a background job (`ModeJob`) in the main process; the UI is in the `:home`
   process. `Watchdog` goes back to the stock home screen after 3 crashes in 5 minutes.
+- TCL's Android 11 (Smart TV Pro, `BeyondTV4`) records any home activity as translucent (`dumpsys activity
+  activities`: `type=home … translucent=true`, `occludesParent=false`), whatever the theme says. Home tasks sit at the
+  bottom, so the app you leave (YouTube, Prime Video: anything with a SurfaceView) stays visible above the home screen
+  and Home seems to do nothing. `HomeActivity.cover()` calls `Activity.convertFromTranslucent` (a `@SystemApi`, by
+  reflection) on every resume; where the home screen already covers the screen it changes nothing.
 - On-screen text: `Ui.tr("English")`, translated from `app/assets/i18n/<lang>.json` (keyed by the English; one
   HashMap lookup, English when a language lacks it). Text built at runtime is a pattern: `Ui.trf("{n} min ago", "n", 12)`,
   never concatenated words. A key `"context|Text"` is the same English where a language may need another word
