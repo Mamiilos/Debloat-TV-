@@ -1,7 +1,10 @@
 package io.freemytv;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.util.TypedValue;
@@ -44,8 +47,26 @@ public class HomeActivity extends Activity {
         if (getIntent().getBooleanExtra(EXTRA_ALL_APPS, false)) home.showAllApps();
     }
 
+    /**
+     * Xiaomi's Chinese firmware (MIUI TV) leaves out the "dreams" system service, so the screensaver can never start
+     * as a DreamService there. What the TV does instead is broadcast when it has been idle for its own screen saver
+     * time, which its picture app (MiTV Pictorial, off in Free My TV mode) answered: ours answers it now. Registered
+     * while the home screen is on, which is when the TV idles on it; no other firmware sends this.
+     */
+    private static final String SHOW_SAVER = "com.duokan.intent.action.show.screensaver";
+    private final BroadcastReceiver idle = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent intent) {
+            startActivity(new Intent(c, ScreensaverActivity.class));
+        }
+    };
+    private boolean listening;
+
     @Override protected void onResume() {
         super.onResume();
+        if (!listening) {
+            registerReceiver(idle, new IntentFilter(SHOW_SAVER));
+            listening = true;
+        }
         if (prefsVersion != Prefs.version) {
             prefsVersion = Prefs.version;
             HomeData.get(this).settingsChanged();
@@ -56,6 +77,10 @@ public class HomeActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        if (listening) {
+            unregisterReceiver(idle);
+            listening = false;
+        }
         if (home != null) home.pause();
         super.onPause();
     }
