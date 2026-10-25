@@ -134,7 +134,7 @@ final class Backdrop {
         int[] frost = reduce(out, FW, FH, 3, 3);
         int[] glass = reduce(out, GW, GH, 2, 2);
         // At night the home screen dims the sharp photo by NIGHT_DIM; the glass gets the same, ready.
-        return new Backdrop(gpu(out), frost, glass, null, null, null, null,
+        return new Backdrop(gpu(out), frost, glass, null, null, null,
                 darken(frost.clone(), NIGHT_DIM), darken(glass.clone(), NIGHT_DIM));
     }
 
