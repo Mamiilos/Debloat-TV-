@@ -54,6 +54,8 @@ var Prefs = (function () {
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
     shelf: function () { return pick('shelf', null); },
+    /** Stremio on the home screen (LG and Samsung): off until turned on here or with stremio=true. */
+    stremio: function () { return pick('stremio', CONFIG.stremio === true); },
     /** The shelf_apps of the build that last set the shelf, so a new one wins once over the TV's choice. */
     shelfConfig: function () { return pick('shelfConfig', ''); },
     set: function (name, value) { v[name] = value; save(); this.version++; },
@@ -172,7 +174,7 @@ var Data = (function () {
 
   function refreshWallpaper() {
     var now = Date.now();
-    if (Prefs.theme() !== 'photo' || KEY || fetchingWallpaper) return;
+    if (Prefs.theme() !== 'photo' || source() || fetchingWallpaper) return;
     if (wallpaper && now - wallpaper.at < 6 * 3600000 && now >= wallpaper.at) return;
     if (wallpaperFailedAt && now - wallpaperFailedAt < 30 * 60000 && now >= wallpaperFailedAt) return;
     fetchingWallpaper = true;
@@ -289,8 +291,16 @@ var Data = (function () {
     ['apple tv', 'appletv', /appletv|apple\.tv/, /apple tv/i, 'Apple TV'],
     ['hotstar', 'hotstar', /hotstar/, /hotstar/i, 'JioHotstar'],
     ['crunchyroll', 'crunchyroll', /crunchyroll/, /crunchyroll/i, 'Crunchyroll'],
-    ['now tv', 'now', /nowtv|now\.tv/, /^now( tv)?$/i, 'NOW']
+    ['now tv', 'now', /nowtv|now\.tv/, /^now( tv)?$/i, 'NOW'],
+    // Not on TMDB: the picks from Stremio's own catalogue (no TMDB key, Stremio on the TV) open it.
+    ['stremio', 'stremio', /^io\.strem\./, /stremio/i, 'Stremio']
   ];
+
+  /** Where the picks come from: TMDB with a key; without one, Stremio's catalogue when Stremio is on (and on the TV). */
+  function source() { return KEY ? 'tmdb' : stremioHere() ? 'stremio' : ''; }
+
+  /** The Stremio setting is on and the TV has Stremio. */
+  function stremioHere() { return Prefs.stremio() && !!appFor('stremio'); }
 
   var installed = [];   // the TV's apps, from TV.apps()
 
@@ -312,6 +322,7 @@ var Data = (function () {
     for (var i = 0; i < SERVICES.length; i++) {
       var s = SERVICES[i];
       if (s[1] === 'appletv' && providerId !== 350) continue;
+      if (s[1] === 'stremio') continue;
       if (s[0] === 'max' ? /\bmax\b/.test(n) : n.indexOf(s[0]) >= 0) return s;
     }
     return null;
@@ -335,8 +346,8 @@ var Data = (function () {
   }
 
   function sourceStamp() {
-    var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (CONFIG.hideAnimation ? ':no-animation' : '');
-    for (var i = 0; i < SERVICES.length; i++) s += appFor(SERVICES[i][1]) ? '1' : '0';
+    var s = (KEY ? '' : source() + ':') + KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (CONFIG.hideAnimation ? ':no-animation' : '');
+    for (var i = 0; i < SERVICES.length; i++) if (!KEY || SERVICES[i][1] !== 'stremio') s += appFor(SERVICES[i][1]) ? '1' : '0';
     return s;
   }
 
@@ -349,9 +360,11 @@ var Data = (function () {
   /** This hour's 3 picks: movies ("movie"), shows ("tv") or both (null). */
   function now(kind) {
     var list = [];
-    if (!KEY) return list;
+    var from = source();
+    if (!from) return list;
     for (var i = 0; i < picks.length; i++) {
       var p = picks[i];
+      if ((p.app === 'stremio') !== (from === 'stremio')) continue;   // kept from the other source, until a new list
       if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && appFor(p.app)))) list.push(p);
     }
     if (!list.length) return list;
@@ -523,7 +536,8 @@ var Data = (function () {
 
   /** Fetches the list when stale (6 h, a new period of the day, language, key or apps), then this hour's details. */
   function refreshRecs() {
-    if (!KEY || fetchingRecs || !installed.length) return;
+    var from = source();
+    if (!from || fetchingRecs || !installed.length) return;
     var t = Date.now(), p = hourPeriod(new Date()), st = sourceStamp();
     if (st === stamp && failedAt && t - failedAt < 10 * 60000 && t >= failedAt) return;
     var stale = st !== stamp || p !== period || t - listAt > 6 * 3600000 || t < listAt || !picks.length || listLang !== I18N.lang;
@@ -542,7 +556,18 @@ var Data = (function () {
       var todo = all().filter(function (x) { return !x.detailed; });
       each(todo, function (x, next) { details(x, function () { next(); }); }, function () { finish(null); });
     }
-    if (stale) {
+    if (stale && from === 'stremio') {
+      Stremio.catalog(CONFIG.hideAnimation, function (err, list) {
+        // Part of it (a list didn't come): shown, and asked again in 10 minutes rather than in 6 hours.
+        if (list && list.length) {
+          picks = list;
+          listAt = err ? 0 : Date.now();
+          period = p;
+          listLang = I18N.lang;
+        }
+        finish(err);
+      });
+    } else if (stale) {
       fetchList(function (err) {
         if (err) { finish(err); return; }
         listAt = Date.now();
@@ -592,12 +617,25 @@ var Data = (function () {
     get pricesAt() { return pricesAt; },
     activeCoins: activeCoins,
     hasKey: function () { return !!KEY; },
-    /** The photo of the day ({url, caption}) when its theme is on and there are no picks; otherwise null. */
-    wallpaper: function () { return Prefs.theme() === 'photo' && !KEY && wallpaper && bingImage(wallpaper.url.slice(BING.length)) ? wallpaper : null; },
+    /** The photo of the day ({url, caption}) when its theme is on and there are no picks (no TMDB key, no Stremio's catalogue); otherwise null. */
+    wallpaper: function () { return Prefs.theme() === 'photo' && !source() && !(stremioHere() && Stremio.items().length) && wallpaper && bingImage(wallpaper.url.slice(BING.length)) ? wallpaper : null; },
+    /** Picks to show: from TMDB (a key) or from Stremio's catalogue (Stremio on, and on the TV). */
+    hasPicks: function () { return !!source(); },
+    /** The Stremio setting is on and the TV has Stremio (its Continue Watching can show). */
+    stremio: stremioHere,
     recsError: function () { return recsError; },
     picks: now,
     showcase: all,
-    image: function (path, size) { return path ? 'https://image.tmdb.org/t/p/' + (size || 'w1280') + path : ''; },
+    /**
+     * A TMDB image path at a size, or Stremio's picture (a whole URL, 1280 wide like TMDB's w1280): its 4K one only for
+     * the screensaver, its small one for the blurred background.
+     */
+    image: function (path, size) {
+      if (/^https?:/.test(path || '')) {
+        return path.replace('/background/medium/', size === 'original' ? '/background/large/' : size === 'w300' ? '/background/small/' : '/background/medium/');
+      }
+      return path ? 'https://image.tmdb.org/t/p/' + (size || 'w1280') + path : '';
+    },
 
     /** Night at the location: from sunset to sunrise (the last forecast; without one, 6:00 and 18:00). */
     isNight: function (at) {

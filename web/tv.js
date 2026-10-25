@@ -165,7 +165,7 @@ var TV = (function () {
     ['netflix', 'Netflix', '#E50914'], ['youtube.leanback.v4', 'YouTube', '#FF0033'], ['amazon', 'Prime Video', '#1A98FF'],
     ['com.disney.disneyplus-prod', 'Disney+', '#1838C8'], ['com.hbo.hbomax', 'Max', '#6C3BE0'],
     ['com.apple.appletv', 'Apple TV', '#B8BCC6'], ['globoplaywebos', 'Globoplay', '#FF5A1F'], ['spotify-beehive', 'Spotify', '#1DB954'],
-    ['cdp-30', 'Plex', '#E5A00D'], ['com.crunchyroll.webapp', 'Crunchyroll', '#F47521'], ['com.webos.app.browser', 'Web Browser', '#3A7BD5'],
+    ['cdp-30', 'Plex', '#E5A00D'], ['com.crunchyroll.webapp', 'Crunchyroll', '#F47521'], ['io.strem.tv', 'Stremio', '#7B5BF5'], ['com.webos.app.browser', 'Web Browser', '#3A7BD5'],
     ['com.palm.app.settings', 'Settings', '#8E8E93']
   ];
 
@@ -180,6 +180,7 @@ var TV = (function () {
     ['globoplaywebos', 'Globoplay'], ['spotify-beehive', 'Spotify', 'icons/spotify.svg'],
     ['tv.twitch.tv.starshot.lg', 'Twitch', '', '#9146FF'], ['cdp-30', 'Plex', '', '#E5A00D'],
     ['org.jellyfin.webos', 'Jellyfin', 'icons/jellyfin.svg'], ['com.crunchyroll.webapp', 'Crunchyroll', '', '#F47521'],
+    ['io.strem.tv', 'Stremio', '', '#7B5BF5'],
     ['com.webos.app.browser', 'Web Browser', '', '#3A7BD5']
   ];
 
@@ -501,6 +502,14 @@ var TV = (function () {
 
     /** The TV's model, firmware, system, IP address and this app's version, for About this TV. */
     about: about,
+
+    /** A short note from the TV itself, shown over whichever app is open (LG's toast); done(shown). */
+    notify: function (message, done) {
+      if (!webos) { if (done) setTimeout(function () { done(false); }, 0); return; }
+      luna('luna://com.webos.notification/createToast', {sourceId: self, message: message, noaction: true}, function (res) {
+        if (done) done(!!res);
+      });
+    },
 
     /** LG: keeps the TV's screensaver away while ours will take over (`hold` says when). */
     holdScreenSaver: holdScreenSaver,
