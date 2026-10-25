@@ -133,6 +133,20 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
             android:theme="@style/FreeMyTV.Home" />
 
+        <!-- The screensaver as an activity, where the firmware has no dream manager at all (MIUI TV). -->
+        <activity
+            android:name=".ScreensaverActivity"
+            android:process=":home"
+            android:exported="false"
+            android:label="Free My TV"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:stateNotNeeded="true"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/FreeMyTV.Home" />
+
         <service
             android:name=".Screensaver"
             android:process=":home"
