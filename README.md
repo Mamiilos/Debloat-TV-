@@ -18,7 +18,7 @@ Open source. Built with Claude Code. One button to undo.
 ## What you get
 
 - **No ads.** No sponsored rows, banners or autoplaying promos. Not one.
-- **Your apps, front and center.** The streaming apps you actually use, on a glass shelf. Pick them and their order right on the TV.
+- **Your apps, front and center.** The streaming apps you actually use, on a glass shelf. Pick them and their order right on the TV, or let the one you opened last come first.
 - **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs.
 - **Weather and markets, one press away.** The hour-by-hour forecast (or the next 5 days), sunrise and sunset, and live crypto prices.
 - **Light by day, dark by night.** It follows your city's real sunset, the way your phone does.

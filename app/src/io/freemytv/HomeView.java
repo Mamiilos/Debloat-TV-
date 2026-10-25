@@ -171,6 +171,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int shelfIndex;
     /** The first app the shelf shows: with more apps than fit, it scrolls with the focus. */
     private int shelfFirst;
+    private int recentVersion;   // Recent.version when the shelf was last put in "Last opened first" order
     private final int shelfVisible;
 
     // Moving apps on the shelf (as on Apple TV): hold OK on a tile, then ← → move it, OK drops it, Back cancels. The
@@ -440,6 +441,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
         checkNotices();
+        if (Prefs.shelfRecent()) reorderRecent();
         if (!again) reload();
         updatePalette();
         updatePicks();
@@ -1161,6 +1163,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     // MARK: - Quotes and shelf
+
+    /** "Last opened first": the app just left comes first, focused, before the screen shows (no file or package reads). */
+    private void reorderRecent() {
+        int v = Recent.version;
+        if (v == recentVersion) return;
+        recentVersion = v;
+        List<HomeApps.Item> ordered = Recent.order(getContext(), shelf);
+        boolean same = true;
+        for (int i = 0; same && i < ordered.size(); i++) same = ordered.get(i) == shelf.get(i);
+        if (same) return;
+        shelfIndex = 0;
+        shelfFirst = 0;
+        setShelf(ordered);
+    }
 
     private void setShelf(List<HomeApps.Item> list) {
         wake();
@@ -2425,7 +2441,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - Moving apps on the shelf
 
     private boolean canReorder() {
-        if (sheetOpen || zone != Z_SHELF || shelfIndex >= shelf.size() || shelf.size() < 2) return false;
+        // "Last opened first" places the apps itself
+        if (sheetOpen || zone != Z_SHELF || shelfIndex >= shelf.size() || shelf.size() < 2 || Prefs.shelfRecent()) return false;
         HomeApps.Item it = shelf.get(shelfIndex);
         return it.kind == HomeApps.APP && it.pkg != null;
     }
