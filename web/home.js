@@ -415,11 +415,39 @@
     updateFocus();
   }
 
+  // MARK: - Wallpapers (wallpapers=true): open-licensed photos behind the home screen, a new one every few minutes
+
+  var WALLS = (CONFIG.wallpapers || []).slice(), wallAt = 0, wallFront = 'wpA', wallTries = 0;
+  var WALL_EVERY = Math.max(1, CONFIG.wallpaperMinutes || 3) * 60000;
+  WALLS.sort(function () { return Math.random() - 0.5; });   // a different order each time the app opens
+
+  /** A quoted CSS url(): Commons addresses keep literal parentheses, which end an unquoted one. */
+  function cssUrl(url) {
+    return 'url("' + url.replace(/["\\\n]/g, encodeURIComponent) + '")';
+  }
+
+  /** Fades to the next wallpaper once it has loaded; one that won't load is skipped. Not under the screensaver. */
+  function nextWall() {
+    if (!WALLS.length || document.hidden || saverOn) return;
+    var p = WALLS[wallAt++ % WALLS.length], img = new Image();
+    img.onload = function () {
+      wallTries = 0;
+      var back = wallFront === 'wpA' ? 'wpB' : 'wpA';
+      $(back).style.backgroundImage = cssUrl(p.url);
+      setClass($(back), 'on', true);
+      setClass($(wallFront), 'on', false);
+      wallFront = back;
+      $('credit').textContent = p.title + ' · ' + p.credit;
+    };
+    img.onerror = function () { if (++wallTries < 5) nextWall(); };
+    img.src = p.url;
+  }
+
   var bgUrl = null, bgFront = 'bgA';
 
   /** The first pick's photo as the background: drawn tiny and stretched, it's already as soft as a heavy blur. */
   function backdrop(url) {
-    if (url === bgUrl) return;
+    if (WALLS.length || url === bgUrl) return;   // with wallpapers, they're the background
     bgUrl = url;
     var next = bgFront === 'bgA' ? 'bgB' : 'bgA';
     if (!url) {
@@ -1022,9 +1050,10 @@
 
   var saverOn = false, idleAt = Date.now(), saverIndex = 0, saverTimer = 0, SAVER_AFTER = 5 * 60000;
 
-  /** The screensaver's photos: picks with an app on the TV. */
+  /** The screensaver's photos: picks with an app on the TV, or else the wallpapers (url and credit, no backdrop). */
   function saverPhotos() {
-    return Data.showcase().filter(function (p) { return p.backdrop && Data.appFor(p.app); });
+    var picks = Data.showcase().filter(function (p) { return p.backdrop && Data.appFor(p.app); });
+    return picks.length ? picks : WALLS;
   }
 
   function showSaver() {
@@ -1044,9 +1073,9 @@
       var p = photos.length ? photos[saverIndex++ % photos.length] : null;
       var back = front === a ? b : a;
       if (p) {
-        back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'original') + ')';
+        back.style.backgroundImage = p.url ? cssUrl(p.url) : 'url(' + Data.image(p.backdrop, 'original') + ')';
         back.style.webkitTransform = back.style.transform = 'scale(1.0)';
-        clock.lastChild.textContent = p.title;
+        clock.lastChild.textContent = p.credit ? p.title + ' · ' + p.credit : p.title;
         setTimeout(function () {
           setClass(back, 'on', true);
           setClass(front, 'on', false);
@@ -1160,6 +1189,7 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) { hideSaver(); return; }
     idleAt = Date.now();
+    if (WALLS.length && !$(wallFront).style.backgroundImage) nextWall();   // it opened hidden: no wallpaper yet
     loadApps(function () { renderShelf(); renderDrawer(); updateFocus(); Data.refresh(); });
   });
 
@@ -1168,6 +1198,11 @@
   // LG's screensaver waits only when ours will show: not under a sheet (ours waits there), and not without photos.
   TV.holdScreenSaver(function () { return !sheetOpen() && saverPhotos().length > 0; });
   fit();
+  if (WALLS.length) {
+    setClass(body, 'walls', true);
+    nextWall();
+    setInterval(nextWall, WALL_EVERY);
+  }
   renderTop();
   tickClock();
   loadApps(function () {
