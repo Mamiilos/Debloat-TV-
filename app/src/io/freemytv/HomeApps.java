@@ -58,6 +58,8 @@ final class HomeApps {
     static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5, DEVICE = 6;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
+    /** A Home Assistant entity in the bottom drawer (HomeAssistant). */
+    static final int HOME_ASSISTANT = 8;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -66,6 +68,8 @@ final class HomeApps {
         String key, label, pkg, inputId, number;
         String uri;         // opens this address in the app instead of the app's home (a title's page)
         Intent intent;      // DEVICE: the TV maker's own screen it opens
+        String entity;      // HOME_ASSISTANT: its entity id (light.kitchen)
+        String value;       // HOME_ASSISTANT, an entity OK can't change (a sensor): its value, shown instead of the symbol
         String symbol;      // icon for the shortcuts and special cards
         Bitmap tile;        // 16:9 card (apps and specials): set with setTile
         BitmapShader tileShader;   // the card's, for its rounded corners (made with the card, never while drawing)

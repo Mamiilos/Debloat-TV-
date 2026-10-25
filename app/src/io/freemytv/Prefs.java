@@ -173,6 +173,10 @@ final class Prefs {
     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
     static void setQuotes(boolean on) { put("quotes", on); }
 
+    /** The Home Assistant buttons in the drawer (HomeAssistant), once its address and token came from a computer. */
+    static boolean homeAssistant() { return sp().getBoolean("homeAssistant", true); }
+    static void setHomeAssistant(boolean on) { put("homeAssistant", on); }
+
     /** Your photos (Photos, sent from a computer) on the screensaver and behind the home screen, once imported. */
     static boolean photos() { return sp().getBoolean("photos", true); }
     static void setPhotos(boolean on) { put("photos", on); }

@@ -160,6 +160,9 @@ public class SettingsActivity extends Activity {
         private final List<String[]> shelfRows = new ArrayList<>();
         private final List<String> shelfOrder = new ArrayList<>();
         private boolean editingTop;
+        // Also Home Assistant's entities (editingHa): picked from what HA lists, which comes from the network.
+        private boolean editingHa;
+        private String haStatus = "";
         private int pickFor, pickCurrent, pickScroll;   // pickFor: the remote button (index + 1)
         private static final int PICK_CITY = 0, PICK_LANGUAGE = -1, PICK_SLEEP = -2, PICK_PLACE = -3;
         /** Sleep Timer's pickers (PICK_SLEEP and below): their choices as {value, name}, and the value now. */
@@ -290,6 +293,10 @@ public class SettingsActivity extends Activity {
                     if (at >= shelfRows.size()) return "";
                     String[] app = shelfRows.get(at);
                     int place = shelfOrder.indexOf(app[0]);
+                    if (editingHa) {
+                        return app[1] + ", " + (place >= 0 ? Ui.trf("in the drawer, place {n}", "n", place + 1)
+                                : Ui.tr("not in the drawer"));
+                    }
                     if (editingTop) {
                         return app[1] + ", " + (place >= 0 ? Ui.trf("in the top buttons, place {n}", "n", place + 1)
                                 : Ui.tr("not in the top buttons"));
@@ -686,6 +693,12 @@ public class SettingsActivity extends Activity {
                             } else if (screen == PICKER) {
                                 focus = pickFor - 1;
                                 screen = REMOTE_KEYS;
+                            } else if (screen == SHELF_EDIT && editingHa) {
+                                // Back on its row, at the end of Home Settings' list.
+                                int row = haRow() + 1;
+                                pickScroll = Math.max(0, row - SETTINGS_VISIBLE + 1);
+                                focus = row - pickScroll;
+                                screen = HOME_SETTINGS;
                             } else {
                                 focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? (editingTop ? 4 : 3)
                                         : screen == REMOTE_KEYS ? 5 : screen == POWER ? 6 : 0;
@@ -733,7 +746,14 @@ public class SettingsActivity extends Activity {
             l.add("Ethereum");
             l.add("Solana");
             if (dollar()) l.add(Ui.tr("Dollar"));
+            l.add(Ui.tr("Home Assistant"));
+            l.add(Ui.tr("Home Assistant entities"));
             return l.toArray(new String[0]);
+        }
+
+        /** The Home Assistant switch, after the coins (its entities' row follows). */
+        private int haRow() {
+            return COIN_ROWS + 3 + (dollar() ? 1 : 0);
         }
 
         private String[] settingValues() {
@@ -757,7 +777,12 @@ public class SettingsActivity extends Activity {
             v[PLAYING_ROW] = onOff(Prefs.nowPlaying());
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
-            for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            int ha = haRow();
+            for (int i = COIN_ROWS; i < ha; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            boolean connected = HomeAssistant.connected(getContext());
+            v[ha] = connected ? onOff(Prefs.homeAssistant()) : "—";
+            v[ha + 1] = !connected ? "—" : !Prefs.homeAssistant() ? Ui.tr("Off")
+                    : Ui.plural("plural|one:{n} in the drawer|other:{n} in the drawer", HomeAssistant.entityIds(getContext()).size());
             return v;
         }
 
@@ -801,9 +826,16 @@ public class SettingsActivity extends Activity {
                 whyRows = new String[n];
                 whyScreen = screen;
                 whyScroll = pickScroll;
+                int ha = haRow();
+                boolean connected = HomeAssistant.connected(getContext());
                 for (int r = 0; r < n; r++) {
                     String need = need(r);
-                    whyRows[r] = screen == HOME_SETTINGS && pickScroll + r >= COIN_ROWS && !Prefs.quotes()
+                    int row = pickScroll + r;
+                    boolean settings = screen == HOME_SETTINGS;
+                    whyRows[r] = settings && row >= ha && !connected
+                            ? Ui.tr("Send Home Assistant's address and token from a computer first: see tools/homeassistant.py.")
+                            : settings && row == ha + 1 && !Prefs.homeAssistant() ? Ui.tr("Turn on Home Assistant to pick its entities.")
+                            : settings && row >= COIN_ROWS && row < ha && !Prefs.quotes()
                             ? Ui.tr("Turn on the Quotes widget to pick its coins.")
                             : need == null ? null : Capabilities.missing(getContext(), need);
                 }
@@ -1005,6 +1037,12 @@ public class SettingsActivity extends Activity {
                 return;
             }
             int row = pickScroll + focus;
+            if (row == haRow()) {
+                Prefs.setHomeAssistant(!Prefs.homeAssistant());
+                whyRows = null;   // its entities' row locks or unlocks with it
+                return;
+            }
+            if (row == haRow() + 1) return;   // OK opens the list
             switch (row) {
                 case 0: break;   // OK opens the language picker.
                 case 1: {
@@ -1126,6 +1164,7 @@ public class SettingsActivity extends Activity {
 
         private void openShelfEditor(boolean top) {
             editingTop = top;
+            editingHa = false;
             shelfOrder.clear();
             if (top) {
                 shelfOrder.addAll(HomeApps.topButtonKeys());
@@ -1140,6 +1179,40 @@ public class SettingsActivity extends Activity {
             pickScroll = 0;
             focus = 0;
             screen = SHELF_EDIT;
+        }
+
+        /** Home Assistant's entities: the picked ones at once, then all of them once Home Assistant answers. */
+        private void openHaEditor() {
+            editingTop = false;
+            editingHa = true;
+            shelfOrder.clear();
+            shelfOrder.addAll(HomeAssistant.entityIds(getContext()));
+            List<String[]> picked = new ArrayList<>();
+            for (String id : shelfOrder) picked.add(new String[] {id, id});
+            rebuildShelfRows(picked);
+            haStatus = Ui.tr("Searching…");
+            pickScroll = 0;
+            focus = 0;
+            screen = SHELF_EDIT;
+            Context app = getContext().getApplicationContext();
+            new Thread(() -> {
+                List<String[]> all = HomeAssistant.available(app);
+                handler.post(() -> {
+                    if (!editingHa || screen != SHELF_EDIT) return;
+                    if (all == null) {
+                        haStatus = Ui.tr("Couldn't reach Home Assistant.");
+                    } else {
+                        haStatus = "";
+                        String focused = shelfRows.isEmpty() ? null : shelfRows.get(pickScroll + focus)[0];
+                        rebuildShelfRows(all);
+                        pickScroll = 0;
+                        focus = 0;
+                        if (focused != null) refreshShelfRows(focused);
+                    }
+                    invalidate();
+                    spoken.focusMoved();
+                });
+            }).start();
         }
 
         /** Selected apps first, in shelf order, then the rest in the order they came. */
@@ -1163,14 +1236,17 @@ public class SettingsActivity extends Activity {
                 focus = i - pickScroll;
                 break;
             }
-            if (editingTop) Prefs.setTopButtons(shelfOrder); else Prefs.setShelf(shelfOrder);
+            if (editingHa) HomeAssistant.setEntities(getContext(), shelfOrder);
+            else if (editingTop) Prefs.setTopButtons(shelfOrder);
+            else Prefs.setShelf(shelfOrder);
         }
 
         /** OK: puts the app on the shelf (at the end) or takes it off. */
         private void toggleShelfApp() {
             String pkg = shelfRows.get(pickScroll + focus)[0];
             if (shelfOrder.contains(pkg)) shelfOrder.remove(pkg);
-            else if (editingTop || shelfOrder.size() < HomeApps.maxShelf(getContext())) shelfOrder.add(pkg);   // three buttons: no limit to reach
+            else if (editingHa ? shelfOrder.size() < HomeAssistant.MAX
+                    : editingTop || shelfOrder.size() < HomeApps.maxShelf(getContext())) shelfOrder.add(pkg);   // three buttons: no limit to reach
             else return;
             refreshShelfRows(pkg);
         }
@@ -1187,7 +1263,8 @@ public class SettingsActivity extends Activity {
 
         private void drawShelfEditor(Canvas c) {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(editingTop ? Ui.tr("Top Buttons") : Ui.tr("Shelf"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            c.drawText(editingHa ? Ui.tr("Home Assistant") : editingTop ? Ui.tr("Top Buttons") : Ui.tr("Shelf"),
+                    LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
             for (int i = 0; i < rows; i++) {
                 String[] app = shelfRows.get(pickScroll + i);
@@ -1212,6 +1289,12 @@ public class SettingsActivity extends Activity {
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
+            if (editingHa) {
+                c.drawText(Ui.trf("OK adds or removes (up to {n}). ← → change the order.", "n", HomeAssistant.MAX),
+                        LIST_X * k + 30 * k, hy, hint);
+                if (!haStatus.isEmpty()) c.drawText(haStatus, LIST_X * k + 30 * k, hy + 38 * k, hint);
+                return;
+            }
             if (!editingTop && HomeApps.lowRam(getContext())) {
                 c.drawText(Ui.tr("This TV has little memory, so the shelf holds fewer apps."), LIST_X * k + 30 * k, hy + 38 * k, hint);
             }
@@ -1371,6 +1454,8 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && pickScroll + focus == PHOTOS_ROW) {
                 askRemovePhotos();
                 return;
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == haRow() + 1) {
+                openHaEditor();
             } else if (screen == POWER) {
                 activatePower();
             } else if (screen == HOME_SETTINGS) {

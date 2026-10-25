@@ -199,6 +199,12 @@
             android:authorities="io.freemytv.photos"
             android:exported="true" />
 
+        <!-- tools/homeassistant.py writes the Home Assistant settings here (only adb's shell may). -->
+        <provider
+            android:name=".HaInbox"
+            android:authorities="io.freemytv.ha"
+            android:exported="true" />
+
         <!-- The sleep timer's minutes left over any app, while the timer runs. A process of its own: a foreground
              service in :home would keep the whole home screen in memory under the app in front. -->
         <service

@@ -214,6 +214,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Bottom drawer
     private List<HomeApps.Item> drawerItems = new ArrayList<>();
     private int drawerInputs;          // how many leading items are inputs (the rest are shortcuts)
+    private int drawerHa;              // where the Home Assistant entities start (after the shortcuts; size() without them)
     private Spring[] drawerFocus = new Spring[0];
     private RectF[] drawerRects = new RectF[0];
     private final RectF weatherCard = new RectF(), quotesCard = new RectF();
@@ -1612,12 +1613,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static List<HomeApps.Item> drawerList(Context c) {
         List<HomeApps.Item> list = HomeApps.allInputs(c);
         list.addAll(HomeApps.drawerShortcuts(c));
+        list.addAll(HomeAssistant.items(c));
         return list;
     }
 
     private void setDrawerItems(List<HomeApps.Item> list) {
         int inputs = 0;
         while (inputs < list.size() && (list.get(inputs).kind == HomeApps.INPUT || list.get(inputs).kind == HomeApps.LIVE_TV)) inputs++;
+        int ha = inputs;
+        while (ha < list.size() && list.get(ha).kind != HomeApps.HOME_ASSISTANT) ha++;
+        drawerHa = ha;
         boolean same = list.size() == drawerItems.size();
         for (int i = 0; same && i < list.size(); i++) {
             same = list.get(i).key.equals(drawerItems.get(i).key) && list.get(i).connected == drawerItems.get(i).connected;
@@ -1642,11 +1647,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int n = drawerItems.size();
         float left = MARGIN * k, right = CONTENT_R * k;
         float gap = 18 * k, groupGap = 56 * k;
-        int groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
+        int groups = Math.max(1, (drawerInputs > 0 ? 1 : 0) + (drawerHa > drawerInputs ? 1 : 0) + (drawerHa < n ? 1 : 0));
         float tw = Math.min(230 * k, (right - left - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n));
         float x = left, top = ROW_TOP * k;
         for (int i = 0; i < n; i++) {
-            if (i == drawerInputs && i > 0) x += groupGap - gap;
+            if ((i == drawerInputs || i == drawerHa) && i > 0) x += groupGap - gap;
             drawerRects[i].set(x, top, x + tw, top + ROW_H * k);
             snap(drawerRects[i]);
             x += tw + gap;
@@ -1678,6 +1683,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerIndex = shelf.isEmpty() ? 0 : nearest(drawerRects, tileRects[shelfIndex].centerX());
         for (int i = 0; i < drawerFocus.length; i++) drawerFocus[i].snap(i == drawerIndex ? 1 : 0);
         drawerDirty = true;
+        refreshHomeAssistant();
+    }
+
+    /** The Home Assistant entities' states, read again (when not just read); the drawer shows them when they come. */
+    private void refreshHomeAssistant() {
+        HomeAssistant.refresh(getContext().getApplicationContext(), () -> handler.post(this::reload));
+    }
+
+    /** OK on a Home Assistant entity: shows the new state at once, and the real one once HA answers. */
+    private void pressHomeAssistant(HomeApps.Item it) {
+        if (it.value != null) return;   // a sensor: nothing to press
+        it.connected = !it.connected;
+        drawerDirty = true;
+        HomeAssistant.press(getContext().getApplicationContext(), it.entity, ok -> handler.post(() -> {
+            if (!ok) {
+                showToast(Ui.tr("Couldn't reach Home Assistant."));
+                reload();   // back to the state it was in
+            }
+            refreshHomeAssistant();
+        }));
     }
 
     private void closeDrawer() {
@@ -1724,7 +1749,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         pricePaint.setColor(drawerInk(0.95f));
         float titleBase = ROW_TITLE * k;
         if (drawerInputs > 0) c.drawText(Ui.tr("Inputs"), drawerRects[0].left + 4 * k, titleBase, rowTitle);
-        if (drawerInputs < drawerItems.size()) c.drawText(Ui.tr("Shortcuts"), drawerRects[drawerInputs].left + 4 * k, titleBase, rowTitle);
+        if (drawerInputs < drawerHa) c.drawText(Ui.tr("Shortcuts"), drawerRects[drawerInputs].left + 4 * k, titleBase, rowTitle);
+        if (drawerHa < drawerItems.size()) c.drawText(Ui.tr("Home Assistant"), drawerRects[drawerHa].left + 4 * k, titleBase, rowTitle);
         int top = -1;
         for (int i = 0; i < drawerItems.size(); i++) if (drawerFocus[i].value > 0.02f && (top < 0 || drawerFocus[i].value > drawerFocus[top].value)) top = i;
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
@@ -1753,9 +1779,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             fill.setColor(Ui.alpha(WHITE, f));
             c.drawRoundRect(cell, r, r, fill);
         }
-        boolean off = it.kind == HomeApps.INPUT && !it.connected;
+        boolean ha = it.kind == HomeApps.HOME_ASSISTANT;
+        boolean off = (it.kind == HomeApps.INPUT || ha && it.value == null) && !it.connected;
         int ink = blend(tone(off ? 0xFF8E8E93 : L_INK, off ? 0x6BFFFFFF : 0xF2FFFFFF), INK, f);
-        Symbols.draw(getContext(), c, it.symbol, cx, cell.top + cell.height() * 0.4f, 34 * k * s, ink);
+        if (ha && it.value != null) {
+            // A sensor: its value where the symbol would be.
+            drawerLabel.setColor(ink);
+            drawerLabel.setTextSize(30 * k * s);
+            fitPaint.set(drawerLabel);
+            String v = TextUtils.ellipsize(it.value, fitPaint, cell.width() - 16 * k, TextUtils.TruncateAt.END).toString();
+            c.drawText(v, cx, cell.top + cell.height() * 0.4f + Ui.halfCap(drawerLabel), drawerLabel);
+        } else {
+            // A Home Assistant entity that is on: its symbol lit amber.
+            int symbolInk = ha && it.connected ? blend(0xFFF5A623, 0xFFD98200, f) : ink;
+            Symbols.draw(getContext(), c, it.symbol, cx, cell.top + cell.height() * 0.4f, 34 * k * s, symbolInk);
+        }
         drawerLabel.setColor(ink);
         drawerLabel.setTextSize(23 * k * s);
         float room = cell.width() - 16 * k, wide = drawerLabel.measureText(it.label);
@@ -2482,6 +2520,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 }
             }
             retarget(false);
+            return;
+        }
+        if (it.kind == HomeApps.HOME_ASSISTANT) {
+            pressHomeAssistant(it);
             return;
         }
         boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
