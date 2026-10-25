@@ -293,7 +293,11 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   height for old WebKit); some names are empty or long (`SAMSUNG_TITLES`); and Tizen 3 answers no "settings" app
   control, so TV Settings opens `org.tizen.menu`.
   `web/home.js` follows `HomeView`'s layout and behavior, so a design change on
-  Android belongs there too. Text: the same catalogues as Android, packed into `i18n.js` by `tools/webapp.py` (only
+  Android belongs there too. The exception is the Cinema theme (`theme=cinema`, LG and Samsung only; Android reads it
+  as `auto`): its layout, extras (logos, badges, the Animes tab, Crunchyroll first for animes) and lighter font live
+  under `body.cinema` (picks shown) and `body.cinema-theme` (theme picked), so auto, light and dark stay as
+  `HomeView`; compare them pixel by pixel with the previous build after a change. Nothing animates on its photos:
+  on a 2019 LG (webOS 4.5) that made the whole screen flicker. Text: the same catalogues as Android, packed into `i18n.js` by `tools/webapp.py` (only
   the keys `web/` uses): `tr('Live TV')`, `trf('{n} min ago', {n: 12})`, `plural('plural|…', n)` and
   `formatDate('format|h:mm a', at)` (the catalogue's SimpleDateFormat pattern, written by `web/strings.js`), and
   `tools/translate.py` reads those calls too. Built without a city (`--generic`), `web/zones.js`

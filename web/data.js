@@ -304,7 +304,9 @@ var Data = (function () {
     if (!KEY) return list;
     for (var i = 0; i < picks.length; i++) {
       var p = picks[i];
-      if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && appFor(p.app)))) list.push(p);
+      // Animes: their own tab; the ones found only for it (animeOnly) stay out of the others.
+      var wanted = kind === 'anime' ? p.anime : !p.animeOnly && (kind === null || kind === p.kind);
+      if (wanted && (!p.detailed || (p.app && appFor(p.app)))) list.push(p);
     }
     if (!list.length) return list;
     var hour = Math.floor(Date.now() / 3600000), out = [], seen = {};
@@ -354,6 +356,27 @@ var Data = (function () {
     return best;
   }
 
+  /** The title's logo: in the TV's language, then English, then without text; the best rated, then the largest. */
+  function bestLogo(images) {
+    var list = images && images.logos, best = null, score = -1;
+    for (var i = 0; list && i < list.length; i++) {
+      var l = list[i], lang = l.iso_639_1;
+      if (!l.file_path) continue;
+      var s = (lang === I18N.base ? 3e7 : lang === 'en' ? 2e7 : lang === null ? 1e7 : 0) + (l.vote_average || 0) * 1e5 + Math.min(l.width || 0, 9999);
+      if (s > score) { score = s; best = l.file_path; }
+    }
+    return best;
+  }
+
+  /** 'episode': a new episode this week; 'new': a movie out this month, or a show that started this month. */
+  function badge(kind, o) {
+    var last = o.last_episode_to_air && o.last_episode_to_air.air_date;
+    if (kind === 'tv' && o.first_air_date && o.first_air_date >= day(-30) && o.first_air_date <= day(0)) return 'new';
+    if (kind === 'tv' && last && last >= day(-7) && last <= day(0)) return 'episode';
+    if (kind === 'movie' && o.release_date && o.release_date >= day(-30) && o.release_date <= day(0)) return 'new';
+    return '';
+  }
+
   /** Genre, runtime or seasons, and the service it's on among the TV's apps. */
   function details(p, done) {
     tmdb('/' + p.kind + '/' + p.id + '?language=' + lang() + '&append_to_response=watch/providers,images&include_image_language=null,'
@@ -361,6 +384,12 @@ var Data = (function () {
       if (err) { done(err); return; }
       var best = bestBackdrop(o.images);
       if (best) p.backdrop = best;
+      p.poster = o.poster_path || '';   // in the TV's language when TMDB has it (the Cinema theme's posters)
+      p.overview = o.overview || '';
+      // The Cinema theme's extras: the title's logo, the rating and a badge for what's new.
+      p.logo = bestLogo(o.images) || '';
+      p.vote = o.vote_count >= 50 && o.vote_average > 0 ? o.vote_average : 0;
+      p.badge = badge(p.kind, o);
       var parts = [];
       if (p.kind === 'tv') parts.push(tr('Series'));
       if (o.genres && o.genres.length) {
@@ -377,6 +406,12 @@ var Data = (function () {
       for (var i = 0; flat && i < flat.length && !p.app; i++) {
         var s = service(flat[i].provider_name, flat[i].provider_id);
         if (s && appFor(s[1])) { p.app = s[1]; p.service = s[4]; }
+      }
+      // The Cinema theme opens animes on Crunchyroll whenever it has them, whatever comes first here (home.js).
+      p.crunchyroll = '';
+      for (var c = 0; flat && c < flat.length; c++) {
+        var cr = service(flat[c].provider_name, flat[c].provider_id);
+        if (cr && cr[1] === 'crunchyroll' && appFor('crunchyroll')) p.crunchyroll = cr[4];
       }
       if (p.service && p.app) parts.push(p.service);
       p.meta = parts.join(' · ');
@@ -413,7 +448,8 @@ var Data = (function () {
   function addPick(list, o, kind) {
     if (!o.backdrop_path) return;
     if (CONFIG.hideAnimation && animated(o)) return;
-    list.push({id: o.id, kind: kind, title: kind === 'movie' ? o.title : o.name, backdrop: o.backdrop_path, meta: '', app: null, detailed: false});
+    list.push({id: o.id, kind: kind, title: kind === 'movie' ? o.title : o.name, backdrop: o.backdrop_path, poster: o.poster_path || '',
+      meta: '', overview: '', anime: animated(o) && o.original_language === 'ja', app: null, detailed: false});
   }
 
   function keyOf(p) { return p.kind + ':' + p.id; }
@@ -465,12 +501,39 @@ var Data = (function () {
             alternate(list, seen, hot.movie, hot.tv, 24);
             alternate(list, seen, fresh.movie, fresh.tv, 24);
             if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
-            picks = list;
-            done(null);
+            animes(list, seen, common, function () {
+              picks = list;
+              done(null);
+            });
           });
         });
       });
     });
+  }
+
+  /**
+   * The Animes tab: Japanese animation (TMDB's Animation genre, made in Japan), shows and movies, on the TV's apps.
+   * Ones already in the list (trending) are in both; the others only in this tab. None with hide_animation=true.
+   */
+  function animes(list, seen, common, done) {
+    if (CONFIG.hideAnimation) { done(); return; }
+    var found = {movie: [], tv: []}, filter = '&with_genres=' + ANIMATION + '&with_origin_country=JP';
+    each(['tv', 'movie'], function (kind, next) {
+      tmdb('/discover/' + kind + '?vote_count.gte=20' + filter + common, function (e, r) {
+        for (var j = 0; !e && j < r.results.length; j++) addPick(found[kind], r.results[j], kind);
+        next();
+      });
+    }, function () {
+      var more = [];
+      alternate(more, seen, found.tv, found.movie, 12);
+      for (var i = 0; i < more.length; i++) { more[i].anime = true; more[i].animeOnly = true; list.push(more[i]); }
+      done();
+    });
+  }
+
+  /** Not detailed yet, or saved before the picks kept their story (overview), poster and logo. */
+  function undetailed(x) {
+    return !x.detailed || x.overview === undefined || x.poster === undefined || x.logo === undefined || x.crunchyroll === undefined;
   }
 
   /** Fetches the list when stale (6 h, a new period of the day, language, key or apps), then this hour's details. */
@@ -478,9 +541,10 @@ var Data = (function () {
     if (!KEY || fetchingRecs || !installed.length) return;
     var t = Date.now(), p = hourPeriod(new Date()), st = sourceStamp();
     if (st === stamp && failedAt && t - failedAt < 10 * 60000 && t >= failedAt) return;
-    var stale = st !== stamp || p !== period || t - listAt > 6 * 3600000 || t < listAt || !picks.length || listLang !== I18N.lang;
+    var stale = st !== stamp || p !== period || t - listAt > 6 * 3600000 || t < listAt || !picks.length || listLang !== I18N.lang
+        || picks[0].anime === undefined;   // saved before the Animes tab
     var wanted = all(), missing = false;
-    for (var i = 0; i < wanted.length; i++) missing = missing || !wanted[i].detailed;
+    for (var i = 0; i < wanted.length; i++) missing = missing || undetailed(wanted[i]);
     if (!stale && !missing) return;
     fetchingRecs = true;
     stamp = st;
@@ -491,7 +555,7 @@ var Data = (function () {
       changed();
     }
     function detailWanted() {
-      var todo = all().filter(function (x) { return !x.detailed; });
+      var todo = all().filter(undetailed);
       each(todo, function (x, next) { details(x, function () { next(); }); }, function () { finish(null); });
     }
     if (stale) {
@@ -510,6 +574,7 @@ var Data = (function () {
   /** This hour's picks for the three tabs, without repeats (the screensaver shows them too). */
   function all() {
     var out = [], seen = {}, kinds = [null, 'movie', 'tv'];
+    if (Prefs.theme() === 'cinema') kinds.push('anime');   // the Animes tab is the Cinema theme's
     for (var k = 0; k < kinds.length; k++) {
       var list = now(kinds[k]);
       for (var i = 0; i < list.length; i++) if (!seen[keyOf(list[i])]) { seen[keyOf(list[i])] = true; out.push(list[i]); }
@@ -549,7 +614,7 @@ var Data = (function () {
     /** Night at the location: from sunset to sunrise (the last forecast; without one, 6:00 and 18:00). */
     isNight: function (at) {
       var theme = Prefs.theme();
-      if (theme === 'dark') return true;
+      if (theme === 'dark' || theme === 'cinema') return true;   // Cinema: white text over the photos
       if (theme === 'light') return false;
       var d = new Date(at), mins = d.getHours() * 60 + d.getMinutes();
       function hm(t, fallback) { if (!t) return fallback; var x = new Date(t); return x.getHours() * 60 + x.getMinutes(); }

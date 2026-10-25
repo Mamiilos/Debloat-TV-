@@ -579,3 +579,182 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* The Magic Remote's pointer: no text selection, no outlines. */
 * { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+/* MARK: - Cinema theme: the focused pick fills the screen (its photo, name, details and story at the left), the three
+   picks are posters at the right and the apps a dock of small icons. Always dark: white text over the photo. */
+
+#hero, #info { display: none; }
+.cinema #hero, .cinema #info { display: block; }
+#hero { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+#hero .shot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center top;
+  opacity: 0;
+  -webkit-transition: opacity 0.6s;
+  transition: opacity 0.6s;
+}
+#hero .shot.on { opacity: 1; }
+#hero .shade {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background: -webkit-linear-gradient(left, rgba(8, 8, 10, 0.94) 0%, rgba(8, 8, 10, 0.72) 34%, rgba(8, 8, 10, 0) 66%),
+    -webkit-linear-gradient(top, rgba(8, 8, 10, 0.55) 0%, rgba(8, 8, 10, 0) 18%, rgba(8, 8, 10, 0) 48%, rgba(8, 8, 10, 0.9) 76%, #08080A 100%);
+  background: linear-gradient(90deg, rgba(8, 8, 10, 0.94) 0%, rgba(8, 8, 10, 0.72) 34%, rgba(8, 8, 10, 0) 66%),
+    linear-gradient(180deg, rgba(8, 8, 10, 0.55) 0%, rgba(8, 8, 10, 0) 18%, rgba(8, 8, 10, 0) 48%, rgba(8, 8, 10, 0.9) 76%, #08080A 100%);
+}
+
+.cinema #title { display: none; }
+.cinema #tabs { top: 52px; }
+.cinema .round { top: 52px; }
+.cinema #quotes { top: 72px; right: 350px !important; }
+
+#info { position: absolute; left: 80px; bottom: 340px; width: 820px; color: #FFF; }
+#info .service { font-size: 24px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255, 255, 255, 0.72); }
+#info .name {
+  margin: 12px 0 0;
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  max-height: 2.04em;
+  overflow: hidden;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.35);
+}
+#info .meta { margin-top: 22px; font-size: 27px; font-weight: 500; color: rgba(255, 255, 255, 0.78); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#info .about {
+  margin: 16px 0 0;
+  font-size: 26px;
+  line-height: 1.45;
+  max-height: 4.35em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: rgba(255, 255, 255, 0.86);
+}
+#info .play {
+  display: inline-block;
+  margin-top: 30px;
+  height: 68px;
+  padding: 0 34px 0 28px;
+  border-radius: 8px;
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 68px;
+  color: #FFF;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 8px 22px rgba(0, 0, 0, 0.35);
+  -webkit-transform-origin: 0 50%;
+  transform-origin: 0 50%;
+  -webkit-transition: -webkit-transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+#info .play .sym { vertical-align: -6px; margin-right: 12px; }
+/* A pick has the focus: the button grows a little and lifts, as OK opens it. */
+#info.on .play {
+  -webkit-transform: scale(1.06);
+  transform: scale(1.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 14px 32px rgba(0, 0, 0, 0.55);
+}
+
+.cinema .card { top: 290px; height: 345px; }
+.cinema .card .img { background-color: #2C2C2E; box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55); }
+.cinema .card.focus .img { box-shadow: 0 26px 50px rgba(0, 0, 0, 0.6); }
+.cinema .card .name { display: none; }   /* the poster has the title */
+
+.cinema #platter {
+  background: rgba(30, 30, 34, 0.62);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.cinema #platter::before { display: none; }
+.cinema .tile { box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }
+
+/* The Cinema theme's corners, everywhere while it's picked: 8 px, and 12 px on what holds other rounded things. */
+.cinema-theme .tab, .cinema-theme .round, .cinema-theme .card .img, .cinema-theme .card .img::after,
+.cinema-theme .tile, .cinema-theme .tile::before, .cinema-theme .key, .cinema-theme #prices .coin .c,
+.cinema-theme .cell .face, .cinema-theme .box .row, .cinema-theme .toggle, .cinema-theme #toast { border-radius: 8px; }
+.cinema-theme .toggle::after { border-radius: 6px; }
+.cinema-theme #platter, .cinema-theme .panel, .cinema-theme #settings .box, .cinema-theme #shelfedit .box,
+.cinema-theme #langpick .box, .cinema-theme #saver .clock { border-radius: 12px; }
+.cinema-theme #platter::before { border-radius: 21px; }
+
+/* The Cinema theme is the lighter one on old TVs: a cut of Inter (203 KB instead of 880 KB, tools/webapp.py), and the
+   shadows change at once instead of animating (a repaint every frame on their GPUs); the rest still animates. */
+@font-face {
+  font-family: 'InterWeb';
+  src: url('fonts/InterWeb.woff2') format('woff2');
+  font-weight: 200 700;
+}
+body.cinema-theme { font-family: 'InterWeb', 'LG Smart UI', 'Helvetica Neue', Arial, sans-serif; }
+.cinema-theme .tab {
+  -webkit-transition: -webkit-transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), background-color 0.17s, color 0.17s;
+  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), background-color 0.17s, color 0.17s;
+}
+.cinema-theme .round {
+  -webkit-transition: -webkit-transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), background-color 0.17s;
+  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), background-color 0.17s;
+}
+.cinema-theme .card .img { -webkit-transition: none; transition: none; }
+.cinema-theme .tile {
+  -webkit-transition: -webkit-transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.3s;
+  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.3s;
+}
+.cinema-theme .key {
+  -webkit-transition: -webkit-transform 0.19s cubic-bezier(0.2, 0.9, 0.3, 1.2), background-color 0.14s;
+  transition: transform 0.19s cubic-bezier(0.2, 0.9, 0.3, 1.2), background-color 0.14s;
+}
+.cinema-theme .cell .face {
+  -webkit-transition: -webkit-transform 0.19s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: transform 0.19s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+/* MARK: - Cinema theme extras: the title's logo, rating and badges, time and temperature, and
+   a screensaver to match. Dark logos (made for light posters) are drawn white (home.js measures their ink). Nothing
+   moves on the photo, nor shadows on the logos: on a 2019 LG either makes the whole screen flicker. */
+
+#status, #saver .clock .logo { display: none; }
+.cinema #quotes { display: none; }
+.cinema #status {
+  display: block;
+  position: absolute;
+  right: 350px;
+  top: 70px;
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 32px;
+  color: rgba(255, 255, 255, 0.88);
+  white-space: nowrap;
+  font-feature-settings: 'tnum';
+}
+#status .temp { margin-left: 26px; }
+#status .sym { vertical-align: -6px; margin-right: 8px; }
+
+#info .logo { display: block; margin: 14px 0 28px; max-width: 760px; max-height: 200px; }
+#info .logo.ink, #saver .clock .logo.ink { -webkit-filter: brightness(0) invert(1); filter: brightness(0) invert(1); }
+
+.card .badge {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 1;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #111113;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+/* Screensaver: no glass around the clock; the title's logo under it, when there is one. */
+.cinema-theme #saver .clock { padding: 0; background: none; box-shadow: none; text-shadow: 0 2px 20px rgba(0, 0, 0, 0.45); }
+.cinema-theme #saver .clock.with-logo .logo { display: block; margin-top: 26px; max-width: 620px; max-height: 150px; }
+.cinema-theme #saver .clock.with-logo .title { display: none; }

@@ -306,10 +306,12 @@
       setClass(list[i], 'focus', st.zone === Z.TOP && st.top === i);
     }
     list = $('buttons').children;
-    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
-    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === tabCount + i);
+    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= tabCount);
     list = $('cards').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
+    hero();
+    setClass($('info'), 'on', st.zone === Z.CARDS);
     list = $('tiles').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.SHELF && st.shelf === i);
     setClass($('tiles'), 'on', st.zone === Z.SHELF);
@@ -354,14 +356,27 @@
 
   // MARK: - Top: title, tabs, buttons, quotes
 
-  var TAB_KIND = [null, 'movie', 'tv'];
+  // The Cinema theme's Animes tab, when there are animes on the TV's apps (none with hide_animation=true). The tabs
+  // come first in st.top, then the three buttons.
+  var TAB_KIND = [null, 'movie', 'tv', 'anime'], tabCount = 3;
+
+  function countTabs() { return Prefs.theme() === 'cinema' && Data.picks('anime').length ? 4 : 3; }
+
+  /** The Animes tab came or went with the picks: the top again, and back to Explore if it was on Animes. */
+  function syncTabs() {
+    if (countTabs() === tabCount) return;
+    if (st.tab >= countTabs()) st.tab = 0;
+    if (st.zone === Z.TOP) st.top = st.tab;
+    renderTop();
+  }
 
   function renderTop() {
     $('title').textContent = tr('For You');
     var tabs = $('tabs');
     tabs.innerHTML = '';
-    var names = [tr('Explore'), tr('Movies'), tr('Shows')];
-    for (var i = 0; i < 3; i++) {
+    tabCount = countTabs();
+    var names = [tr('Explore'), tr('Movies'), tr('Shows'), tr('Anime')];
+    for (var i = 0; i < tabCount; i++) {
       var t = el('button', 'tab', tabs, names[i]);
       hover(t, Z.TOP, i);
     }
@@ -373,7 +388,7 @@
       r.style.left = (1596 + 88 * b) + 'px';
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
-      hover(r, Z.TOP, 3 + b);
+      hover(r, Z.TOP, tabCount + b);
     }
   }
 
@@ -394,25 +409,174 @@
     var holder = $('cards');
     setClass(body, 'no-picks', !list.length);
     var same = list.length === cards.length;
-    for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta;
-    if (same && holder.children.length === list.length) return;
+    for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].poster === cards[i].poster && list[i].meta === cards[i].meta && list[i].badge === cards[i].badge;
+    // The Cinema theme: the focused pick fills the screen (hero()), the three are posters at the right and the shelf is
+    // a dock (renderShelf).
+    var cinema = Prefs.theme() === 'cinema' && list.length > 0, relayout = cinema !== cardsCinema;
+    if (same && !relayout && holder.children.length === list.length) return;
     cards = list;
+    cardsCinema = cinema;
+    setClass(body, 'cinema', cinema);
     holder.innerHTML = '';
     var rects = [[80, 1040], [1160, 320], [1520, 320]];
     for (var c = 0; c < list.length; c++) {
       var p = list[c], card = el('div', 'card', holder);
-      card.style.left = rects[c][0] + 'px';
-      card.style.width = rects[c][1] + 'px';
+      card.style.left = (cinema ? 1840 - (list.length - c) * 230 - (list.length - 1 - c) * 28 : rects[c][0]) + 'px';
+      card.style.width = (cinema ? 230 : rects[c][1]) + 'px';
       var img = el('div', 'img', card);
-      img.style.backgroundImage = 'url(' + Data.image(p.backdrop, c === 0 ? 'w1280' : 'w780') + ')';
+      img.style.backgroundImage = 'url(' + (cinema && p.poster ? Data.image(p.poster, 'w342')
+        : Data.image(p.backdrop, c === 0 && !cinema ? 'w1280' : 'w780')) + ')';
       el('div', 'name', card, p.title);
-      if (c === 0 && p.meta) el('div', 'meta', card, p.meta);
+      if (c === 0 && p.meta && !cinema) el('div', 'meta', card, p.meta);
+      if (cinema && p.badge) el('div', 'badge', card, p.badge === 'episode' ? tr('badge|New episode') : tr('badge|New'));
+      if (cinema && p.logo) loadLogo(Data.image(p.logo, 'w500'));
       hover(card, Z.CARDS, c);
     }
     st.card = Math.min(st.card, Math.max(0, list.length - 1));
     if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
     backdrop(list.length ? Data.image(list[0].backdrop, 'w300') : '');
+    heroKey = null;
+    if (relayout) renderShelf();
     updateFocus();
+  }
+
+  var cardsCinema = false;
+
+  // MARK: - Hero: the focused pick across the whole screen, with its name, details and story
+
+  var heroKey = null, heroFront = 0, heroUrl = null;
+
+  /** The title as large as fits: one line up to 140 px, then two lines, never under 64 px. */
+  function heroSize(title) {
+    var n = Math.max(4, title.length), one = 820 / (n * 0.56);
+    return Math.round(one >= 96 ? Math.min(140, one) : Math.max(64, Math.min(96, 2 * one)));
+  }
+
+  function hero() {
+    var p = cardsCinema ? cards[st.card] : null, info = $('info');
+    var key = p ? [p.kind, p.id, p.backdrop, p.meta, p.overview, p.logo, p.vote, p.crunchyroll].join(':') : '';
+    if (key === heroKey) return;
+    heroKey = key;
+    info.innerHTML = '';
+    if (!p) { heroShot(''); return; }
+    var on = watchOn(p), app = Data.appFor(on.app);
+    if (!app && on.service) el('div', 'service', info, on.service);
+    var name = el('h2', 'name', info, p.title);
+    name.style.fontSize = heroSize(p.title) + 'px';
+    if (p.logo) heroLogo(name, Data.image(p.logo, 'w500'), key);
+    var meta = p.service && p.meta.slice(-(p.service.length + 3)) === ' · ' + p.service
+      ? p.meta.slice(0, -(p.service.length + 3)) : p.meta;
+    if (p.vote) meta = '★ ' + rating(p.vote) + (meta ? ' · ' + meta : '');
+    if (meta) el('div', 'meta', info, meta);
+    if (p.overview) el('p', 'about', info, p.overview);
+    if (app) {
+      // The play button names the service and takes its brand color.
+      var play = el('div', 'play', info);
+      brand(play, app, on.app);
+      sym('play', play, 28);
+      el('span', '', play, on.service || app.title);
+    }
+    heroShot(Data.image(p.backdrop, 'w1280'));
+  }
+
+  // Button colors for brands whose shelf tile is black or that the TV gets wrong (LG says black for Crunchyroll).
+  var BRAND = {netflix: ['#E50914', '#B20710'], youtube: ['#FF0033', '#CC0000'], crunchyroll: ['#F78A2B', '#F47521']};
+
+  function brand(box, app, key) {
+    var k = shelfKey(app), c = BRAND[key] || (k && BRAND[k[0]]);
+    if (c) paint(box, c[0], c[1]);
+    else if (k) paint(box, k[3][0], k[3][1]);
+    else if (app.color) paint(box, darken(app.color, 1), darken(app.color, 0.8));
+    else paint(box, '#3A3A3C', '#2C2C2E');
+  }
+
+  /** Where a pick opens: in the Cinema theme, animes on Crunchyroll when it has them; elsewhere the first service. */
+  function watchOn(p) {
+    if (cardsCinema && p.anime && p.crunchyroll) return {app: 'crunchyroll', service: p.crunchyroll};
+    return {app: p.app, service: p.service};
+  }
+
+  /** 8.4 as the TV writes it (8,4 in Portuguese). */
+  function rating(v) {
+    var t = (Math.round(v * 10) / 10).toFixed(1);
+    try { return Number(t).toLocaleString(I18N.locale(), {minimumFractionDigits: 1}); } catch (e) { return t; }
+  }
+
+  /**
+   * The title's logo in place of its name, once it has loaded. A dark one (black letters, made for light posters) is
+   * drawn white, or it would vanish on the dark photo: its ink is measured on a small canvas (TMDB allows it, CORS).
+   */
+  function heroLogo(name, url, key) {
+    var logo = loadLogo(url);
+    function swap() {
+      if (heroKey !== key || !name.parentNode) return;
+      if (logo.state !== 'ok') { name.style.visibility = ''; return; }
+      var img = el('img', 'logo' + (logo.ink ? ' ink' : ''));
+      img.crossOrigin = 'anonymous';
+      img.alt = name.textContent;
+      img.src = url;
+      name.parentNode.replaceChild(img, name);
+    }
+    if (logo.state !== 'loading') { swap(); return; }
+    // Still loading: the name keeps its place, unseen, so it doesn't show and then turn into the logo. After a
+    // second without the logo, the name shows.
+    name.style.visibility = 'hidden';
+    logo.waiting.push(swap);
+    setTimeout(function () { if (heroKey === key && name.parentNode) name.style.visibility = ''; }, 1000);
+  }
+
+  // The picks' logos, loaded once each (the three of the tab are loaded ahead, renderCards), with their ink measured.
+  var logos = {};
+
+  function loadLogo(url) {
+    if (logos[url]) return logos[url];
+    var logo = logos[url] = {state: 'loading', ink: false, waiting: []}, img = new Image();
+    function done(state) {
+      logo.state = state;
+      if (state === 'ok') logo.ink = darkInk(img);
+      var w = logo.waiting;
+      logo.waiting = [];
+      for (var i = 0; i < w.length; i++) w[i]();
+    }
+    img.crossOrigin = 'anonymous';
+    img.onload = function () { done('ok'); };
+    img.onerror = function () { done('failed'); };
+    img.src = url;
+    return logo;
+  }
+
+  function darkInk(img) {
+    try {
+      var w = 64, h = Math.max(1, Math.round(64 * img.height / Math.max(1, img.width)));
+      var c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      var g = c.getContext('2d');
+      g.drawImage(img, 0, 0, w, h);
+      var px = g.getImageData(0, 0, w, h).data, sum = 0, n = 0;
+      for (var i = 0; i < px.length; i += 4) if (px[i + 3] > 128) { sum += luminance(px[i], px[i + 1], px[i + 2]); n++; }
+      return n > 0 && sum / n < 0.18;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** Crossfades to the photo once it has loaded, so the screen never flashes empty in between. */
+  function heroShot(url) {
+    if (url === heroUrl) return;
+    heroUrl = url;
+    var shots = $('hero').querySelectorAll('.shot');
+    if (!url) { setClass(shots[0], 'on', false); setClass(shots[1], 'on', false); return; }
+    var img = new Image();
+    img.onload = function () {
+      if (heroUrl !== url) return;
+      var next = 1 - heroFront;
+      shots[next].style.backgroundImage = 'url(' + url + ')';
+      setClass(shots[next], 'on', true);
+      setClass(shots[heroFront], 'on', false);
+      heroFront = next;
+    };
+    img.src = url;
   }
 
   var bgUrl = null, bgFront = 'bgA';
@@ -443,6 +607,19 @@
     var d = new Date(), c = $('clock');
     c.firstChild.textContent = formatDate('format|h:mm', d.getTime());
     c.lastChild.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
+    renderStatus();
+  }
+
+  /** The Cinema theme's time and temperature at the top right, where the other themes have the quotes. */
+  function renderStatus() {
+    var s = $('status'), w = Data.weather;
+    s.innerHTML = '';
+    el('span', 'time', s, formatDate('format|h:mm', Date.now()));
+    if (w && Prefs.weather()) {
+      var t = el('span', 'temp', s);
+      sym(Data.symbol(w.code, w.isDay), t, 30);
+      t.appendChild(document.createTextNode(Data.degrees(w.temp)));
+    }
   }
 
   /** On the minute, so the clock never runs late (the 30-second refresh could, by up to 30 s). */
@@ -456,15 +633,16 @@
   var shelfFirst = 0, tileStep = 0, tileLeft = 0;
 
   function renderShelf() {
-    var n = Math.min(shelf.length, SHELF_VISIBLE), gap = 48, pad = 40;
+    // The Cinema theme's dock: small square icons on a glass bar, centered.
+    var dock = cardsCinema, n = Math.min(shelf.length, SHELF_VISIBLE), gap = dock ? 24 : 48, pad = dock ? 20 : 40;
     // 16:9 tiles, as on Android: never taller than 126, and the glass keeps its bottom edge.
-    var tw = Math.min(126 * 16 / 9, (1760 - Math.max(0, n - 1) * gap) / Math.max(1, n)), th = tw * 9 / 16;
+    var tw = dock ? 96 : Math.min(126 * 16 / 9, (1760 - Math.max(0, n - 1) * gap) / Math.max(1, n)), th = dock ? 96 : tw * 9 / 16;
     var width = n * tw + Math.max(0, n - 1) * gap, left = (1920 - width) / 2;
     var platter = $('platter');
     platter.style.display = n ? '' : 'none';
     platter.style.left = (left - pad) + 'px';
     platter.style.width = (width + 2 * pad) + 'px';
-    platter.style.top = (814 + 126 - th) + 'px';
+    platter.style.top = (dock ? 908 : 814 + 126 - th) + 'px';
     platter.style.height = (th + 2 * pad) + 'px';
     $('quotes').style.right = (1920 - left - width) + 'px';
     var tiles = $('tiles');
@@ -474,7 +652,7 @@
     shelfFirst = Math.max(0, Math.min(shelfFirst, shelf.length - n));
     for (var i = 0; i < shelf.length; i++) {
       var t = el('div', 'tile', tiles);
-      t.style.top = (854 + 126 - th) + 'px';
+      t.style.top = (dock ? 908 + pad : 854 + 126 - th) + 'px';
       t.style.width = tw + 'px';
       t.style.height = th + 'px';
       face(shelf[i], t, wordFit(shelf[i].title, tw, 30));
@@ -682,8 +860,8 @@
         step: function (d) { if (d >= 0) openLanguages(); }},
       {label: tr('Temperature'), value: unit === 'C' ? '°C' : unit === 'F' ? '°F' : tr('unit|Automatic'),
         step: function (d) { cycle('temperature', ['auto', 'C', 'F'], unit, d); renderPanels(); }},
-      {label: tr('Theme'), value: theme === 'light' ? tr('Light') : theme === 'dark' ? tr('Dark') : auto,
-        step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
+      {label: tr('Theme'), value: theme === 'light' ? tr('Light') : theme === 'dark' ? tr('Dark') : theme === 'cinema' ? tr('Cinema') : auto,
+        step: function (d) { cycle('theme', ['auto', 'light', 'dark', 'cinema'], theme, d); checkNight(); syncTabs(); renderCards(); }},
       {label: tr('Weather widget'), toggle: Prefs.weather(),
         step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
       {label: tr('Forecast'), value: Prefs.forecast() === 'days' ? tr('Next days') : tr('Next hours'),
@@ -879,13 +1057,13 @@
   function activate() {
     switch (st.zone) {
       case Z.TOP:
-        if (st.top < 3) return;
-        if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
-        else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
+        if (st.top < tabCount) return;
+        if (st.top === tabCount) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
+        else if (st.top === tabCount + 1) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
         else openSettings();
         return;
       case Z.CARDS:
-        var p = cards[st.card], app = p && Data.appFor(p.app);
+        var p = cards[st.card], app = p && Data.appFor(watchOn(p).app);
         if (app) launcher(app.id, app.title)();
         return;
       case Z.SHELF:
@@ -933,10 +1111,10 @@
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(0, Math.min(5, st.top + dx));
-          if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
+          st.top = Math.max(0, Math.min(tabCount + 2, st.top + dx));
+          if (st.top < tabCount) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
+          if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < tabCount ? 0 : cards.length - 1); }
           else st.zone = Z.SHELF;
         }
         break;
@@ -983,7 +1161,7 @@
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
       st.zone = zone;
-      if (zone === Z.TOP) { st.top = index; if (index < 3) selectTab(index); }
+      if (zone === Z.TOP) { st.top = index; if (index < tabCount) selectTab(index); }
       else if (zone === Z.CARDS) st.card = index;
       else if (zone === Z.SHELF) st.shelf = index;
       else if (zone === Z.DRAWER) st.drawer = index;
@@ -1014,6 +1192,7 @@
   function checkNight() {
     var night = Data.isNight(Date.now());
     setClass(body, 'night', night);
+    setClass(body, 'cinema-theme', Prefs.theme() === 'cinema');   // its 8 px corners, everywhere (home.css)
     if (night === lastNight) return;
     lastNight = night;
     document.documentElement.style.background = night ? '#0B0B0D' : '';
@@ -1038,15 +1217,28 @@
     el('div', 'time', clock);
     el('div', 'date', clock);
     el('div', 'title', clock);
+    var logo = el('img', 'logo', clock);
     var front = a;
     function next() {
       if (!saverOn) return;
       var p = photos.length ? photos[saverIndex++ % photos.length] : null;
       var back = front === a ? b : a;
       if (p) {
-        back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'original') + ')';
+        // The Cinema theme takes w1280, not the original (often 3840 × 2160, 33 MB decoded, two at a time): lighter on
+        // a 1 GB TV.
+        back.style.backgroundImage = 'url(' + Data.image(p.backdrop, Prefs.theme() === 'cinema' ? 'w1280' : 'original') + ')';
         back.style.webkitTransform = back.style.transform = 'scale(1.0)';
-        clock.lastChild.textContent = p.title;
+        clock.children[2].textContent = p.title;
+        // The Cinema theme: the title's logo in place of its name, when it has one (white, as on the home screen).
+        var withLogo = Prefs.theme() === 'cinema' && !!p.logo;
+        setClass(clock, 'with-logo', false);
+        if (withLogo) {
+          var src = Data.image(p.logo, 'w500');
+          logo.onload = function () { setClass(logo, 'ink', darkInk(logo)); setClass(clock, 'with-logo', true); };
+          logo.crossOrigin = 'anonymous';
+          if (logo.src === src && logo.complete) logo.onload();   // the same logo again: no new load event
+          else logo.src = src;
+        }
         setTimeout(function () {
           setClass(back, 'on', true);
           setClass(front, 'on', false);
@@ -1141,7 +1333,9 @@
   }
 
   Data.onChange(function () {
+    syncTabs();
     renderQuotes();
+    renderStatus();
     renderCards();
     renderPanels();
     checkNight();
