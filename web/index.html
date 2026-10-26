@@ -1,58 +1,225 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="pt-BR">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=1920, height=1080">
-<title>Free My TV</title>
-<link rel="stylesheet" href="home.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galo TV Launcher</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --card-focus: #333333;
+            --galo-black: #000000;
+            --galo-gold: #c5a059;
+            --text-main: #ffffff;
+            --text-muted: #b0b0b0;
+        }
+
+        body {
+            margin: 0;
+            padding: 40px;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid var(--galo-gold);
+            padding-bottom: 15px;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .badge-galo {
+            background-color: var(--galo-black);
+            color: var(--galo-gold);
+            border: 2px solid var(--galo-gold);
+            padding: 8px 16px;
+            font-weight: bold;
+            font-size: 20px;
+            border-radius: 8px;
+        }
+
+        .clock {
+            font-size: 28px;
+            font-weight: 300;
+            color: var(--text-muted);
+        }
+
+        .section-title {
+            font-size: 20px;
+            color: var(--galo-gold);
+            margin: 25px 0 15px 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .row {
+            display: flex;
+            gap: 20px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 220px;
+            flex: 0 0 auto;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .card:focus, .card.active {
+            border-color: var(--galo-gold);
+            background-color: var(--card-focus);
+            transform: scale(1.05);
+            outline: none;
+        }
+
+        .galo-card {
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            border-left: 5px solid var(--galo-gold);
+            min-width: 320px;
+        }
+
+        .galo-card h3 {
+            margin: 0 0 10px 0;
+            color: var(--galo-gold);
+            font-size: 18px;
+        }
+
+        .galo-card p {
+            margin: 5px 0;
+            color: var(--text-main);
+            font-size: 15px;
+        }
+
+        .yt-card {
+            min-width: 260px;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .yt-thumbnail {
+            width: 100%;
+            height: 130px;
+            background-color: #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-weight: bold;
+        }
+
+        .yt-info {
+            padding: 12px;
+        }
+
+        .yt-info h4 {
+            margin: 0;
+            font-size: 14px;
+            color: var(--text-main);
+            line-height: 1.4;
+        }
+    </style>
 </head>
 <body>
-<script>
-  // The look the home screen last had, before anything is drawn, so a night start doesn't flash the day one first.
-  try {
-    if (localStorage.getItem('fmtv.night') === 'true') {
-      document.documentElement.style.background = '#0B0B0D';
-      document.body.className = 'night';
-    }
-  } catch (e) {}
-</script>
-<div id="stage">
-  <div id="sky" class="layer">
-    <div class="grad day"></div>
-    <div class="grad night"></div>
-    <canvas id="bgA" width="48" height="27"></canvas>
-    <canvas id="bgB" width="48" height="27"></canvas>
-    <div class="veil"></div>
-    <div class="lift"></div>
-  </div>
-  <div id="home" class="layer">
-    <div id="top" class="layer">
-      <h1 id="title"></h1>
-      <div id="tabs"></div>
-      <div id="quotes"></div>
-      <div id="buttons"></div>
-      <div id="cards"></div>
-      <div id="clock"><span class="time"></span><span class="date"></span></div>
+
+    <header>
+        <div class="header-title">
+            <div class="badge-galo">🐔 GALO TV</div>
+            <div>
+                <h2 style="margin:0; font-size:22px;">Atlético Mineiro & Conteúdos</h2>
+                <span style="font-size: 14px; color: var(--text-muted);">Sua Tela Inicial Personalizada</span>
+            </div>
+        </div>
+        <div class="clock" id="clock">--:--</div>
+    </header>
+
+    <div class="section-title">⚡ Próximo Jogo / Métricas do Galo</div>
+    <div class="row">
+        <div class="card galo-card" tabindex="0">
+            <h3>PRÓXIMA PARTIDA</h3>
+            <p><strong>Galo vs.</strong> Adversário</p>
+            <p>📅 Quarta-feira, 21:30 | Brasileirão</p>
+            <p style="color: var(--galo-gold); font-size: 13px; margin-top: 8px;">Arena MRV • Belo Horizonte</p>
+        </div>
+        <div class="card galo-card" tabindex="0">
+            <h3>ÚLTIMO RESULTADO</h3>
+            <p><strong>Galo 2</strong> x 1 Oponente</p>
+            <p style="font-size: 13px; color: var(--text-muted);">Gols: Paulinho, Hulk</p>
+        </div>
     </div>
-    <div id="platter"></div>
-    <div id="tiles"></div>
-  </div>
-  <div id="drawer" class="layer"></div>
-  <div id="apps" class="layer sheet"><h2></h2><div class="grid"></div></div>
-  <div id="settings" class="layer sheet"><div class="box"></div></div>
-  <div id="shelfedit" class="layer sheet"><div class="box"></div></div>
-  <div id="langpick" class="layer sheet"><div class="box"></div></div>
-  <div id="about" class="layer sheet"><div class="box"></div></div>
-  <div id="saver" class="layer"></div>
-  <div id="toast"></div>
-</div>
-<script src="config.js"></script>
-<script src="coins.js"></script>
-<script src="i18n.js"></script>
-<script src="strings.js"></script>
-<script src="tv.js"></script>
-<script src="zones.js"></script>
-<script src="data.js"></script>
-<script src="home.js"></script>
+
+    <div class="section-title">📺 YouTube (Temas & Canais Favoritos)</div>
+    <div class="row">
+        <div class="card yt-card" tabindex="0" onclick="window.open('https://www.youtube.com/results?search_query=TV+Galo', '_blank')">
+            <div class="yt-thumbnail">▶️ TV Galo</div>
+            <div class="yt-info">
+                <h4>Últimos vídeos dos bastidores e treinos do Atlético</h4>
+            </div>
+        </div>
+        <div class="card yt-card" tabindex="0" onclick="window.open('https://www.youtube.com/results?search_query=Futebol+Brasileiro', '_blank')">
+            <div class="yt-thumbnail">⚽ Futebol</div>
+            <div class="yt-info">
+                <h4>Melhores momentos e análises da rodada</h4>
+            </div>
+        </div>
+        <div class="card yt-card" tabindex="0" onclick="window.open('https://www.youtube.com/results?search_query=Tecnologia', '_blank')">
+            <div class="yt-thumbnail">💻 Tecnologia</div>
+            <div class="yt-info">
+                <h4>Novidades e análises de gadgets e sistemas</h4>
+            </div>
+        </div>
+        <div class="card yt-card" tabindex="0" onclick="window.open('https://www.youtube.com/results?search_query=Stand+Up+Comedy', '_blank')">
+            <div class="yt-thumbnail">😂 Comédia</div>
+            <div class="yt-info">
+                <h4>Stand-up e vídeos para relaxar</h4>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById('clock').innerText = `${hours}:${minutes}`;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        const cards = document.querySelectorAll('.card');
+        let currentIndex = 0;
+
+        if (cards.length > 0) {
+            cards[currentIndex].focus();
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') {
+                currentIndex = (currentIndex + 1) % cards.length;
+                cards[currentIndex].focus();
+            } else if (e.key === 'ArrowLeft') {
+                currentIndex = (currentIndex - 1 + cards.length) % cards.length;
+                cards[currentIndex].focus();
+            }
+        });
+    </script>
 </body>
 </html>
+
