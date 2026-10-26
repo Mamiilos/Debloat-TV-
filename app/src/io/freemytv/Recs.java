@@ -52,6 +52,14 @@ final class Recs {
         int accent;             // sport cards: the competition's color
         String label = "";      // sport cards: the competition's name
         String home = "", away = "", logoHome = "", logoAway = "", logoComp = "", art = "";   // sport cards: teams or athletes, logos (URLs)
+        // Sport cards, the scoreboard: the big line (kick-off time or the minute), the lines above and below it, the day
+        // ("Today"), the start as HH:mm, the race's name and session, and for the "Next" list the competition's dot color.
+        boolean live;
+        long start;
+        String board = "", boardTop = "", boardSub = "", day = "", clock = "", raceName = "", session = "";
+        String homeShort = "", awayShort = "", raceLine = "";   // the "Next" list: surnames for tennis; races: session, place
+        int dot;
+        Sports.Event event;
         boolean posterClean, coverClean;   // textless images (BetterPoster style): the title's logo goes on top
         boolean top;            // in the country's Top 10 (Movies and Shows tabs): cover and poster, whatever app plays it
         boolean taste;          // picked from the TMDB profile (Explore)

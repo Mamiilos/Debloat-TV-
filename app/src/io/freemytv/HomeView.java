@@ -98,6 +98,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final String[] TABS_IT = {"Esplora", "Film", "Serie TV"};
     private static final String[] TAB_KIND = {null, "movie", "tv"};
     private static final int Z_TOP = 4, Z_CARDS = 5;
+    private static final float RAIL_HEAD = 46, RAIL_ROW_H = 80, RAIL_MORE_H = 58, RAIL_GAP = 6;
 
     private final Activity activity;
     private final Scene scene = new Scene();
@@ -132,6 +133,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // At the top: tabs (0 to 2) and icon-only buttons (3 to 5); the three cards
     private int tab, topIndex, cardIndex;
     private List<Recs.Pick> cards = new ArrayList<>();
+    private Sports.Event chosenSport;   // picked from the "Next" list: it takes the scoreboard while it isn't over
+    private final String[] raceLines = new String[2];
+    private String raceLinesFor = "";
+    private float raceLinesWidth;
     /** Top row: the three tabs, then the corner buttons (Live TV, HDMI, Settings, profile). */
     private static final int TOP = 8;
     private final Spring[] topFocus = new Spring[TOP];
@@ -147,6 +152,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Rect fitSrc = new Rect();
     private static final String[] RANKS = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"};
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
+    private Paint lBoard, lBoardWord, lBoardLine, lBoardRight, lBoardLineRight, lLive, lSportDay, lSportTeam, lRailHead, lRailTime, lRailSmall, lRailText, lRailMore;
     private Paint lSportMgp, lSportF1, lSportName, lSportMono, lSportLabel, lSportTitle, lSportWhen, lRank, lCaption, lAvatar, lClock, lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip;
     private Shader lightGradient;
 
@@ -553,6 +559,31 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lSportMgp = Ui.text(Ui.mgp != null ? Ui.mgp : Ui.displaySemibold, 54 * k, 0xFFFFFFFF);
         lSportName = Ui.text(Ui.semibold, 27 * k, 0xFFFFFFFF);
         lSportName.setTextAlign(Paint.Align.CENTER);
+        // The scoreboard (matchday): the kick-off time or the minute, big; the lines above and below it.
+        lBoard = Ui.numbers(Ui.displaySemibold, 128 * k, 0xFFFFFFFF);
+        lBoard.setLetterSpacing(-0.035f);
+        lBoard.setTextAlign(Paint.Align.CENTER);
+        lBoardWord = Ui.text(Ui.displaySemibold, 76 * k, 0xFFFFFFFF);
+        lBoardWord.setLetterSpacing(-0.02f);
+        lBoardWord.setTextAlign(Paint.Align.CENTER);
+        lBoardLine = Ui.text(Ui.medium, 24 * k, 0xD9FFFFFF);
+        lBoardLine.setTextAlign(Paint.Align.CENTER);
+        lBoardRight = Ui.numbers(Ui.displaySemibold, 128 * k, 0xFFFFFFFF);
+        lBoardRight.setLetterSpacing(-0.035f);
+        lBoardRight.setTextAlign(Paint.Align.RIGHT);
+        lBoardLineRight = Ui.text(Ui.medium, 24 * k, 0xD9FFFFFF);
+        lBoardLineRight.setTextAlign(Paint.Align.RIGHT);
+        lLive = Ui.text(Ui.semibold, 21 * k, 0xFFFFFFFF);
+        lSportDay = Ui.text(Ui.semibold, 24 * k, 0xFFFFFFFF);
+        lSportDay.setTextAlign(Paint.Align.RIGHT);
+        lSportTeam = Ui.text(Ui.semibold, 34 * k, 0xFFFFFFFF);
+        lSportTeam.setTextAlign(Paint.Align.CENTER);
+        // The "Next" list beside it.
+        lRailHead = Ui.text(Ui.semibold, 22 * k, L_DIM);
+        lRailTime = Ui.numbers(Ui.displaySemibold, 30 * k, L_INK);
+        lRailSmall = Ui.text(Ui.medium, 16 * k, L_FAINT);
+        lRailText = Ui.text(Ui.semibold, 23 * k, L_INK);
+        lRailMore = Ui.text(Ui.semibold, 21 * k, L_DIM);
         lSportMono = Ui.text(Ui.displaySemibold, 84 * k, 0xFFFFFFFF);
         lSportMono.setTextAlign(Paint.Align.CENTER);
         lCaption = Ui.text(Ui.medium, 30 * k, L_DIM);
@@ -2015,6 +2046,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             }
             it = lightButtons.get(topIndex - 3);
             r = topRects[topIndex];
+        } else if (zone == Z_CARDS && cardIndex < cards.size() && "more".equals(cards.get(cardIndex).kind)) {
+            it = HomeApps.action(HomeApps.SPORTS, "sports", cards.get(cardIndex).title, "sports");
+            r = cardRects[cardIndex];
+        } else if (zone == Z_CARDS && cardIndex < cards.size() && "row".equals(cards.get(cardIndex).kind)) {
+            // A "Next" event takes the scoreboard (until it is over).
+            chosenSport = cards.get(cardIndex).event;
+            cardIndex = 0;
+            click.open();
+            updateCards();
+            retarget(false);
+            return;
         } else if (zone == Z_CARDS) {
             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
             if (p == null || p.pkg == null) return;
@@ -2226,6 +2268,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, left = MARGIN * k, tall = L_TALL_W * k;
         float wide = (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g;
         cardRects[0].set(left, top, left + wide, top + ch);
+        if (rail()) {
+            // "Next": a heading, then one row per event and the full schedule, in the space of the two tall cards.
+            float x0 = cardRects[0].right + g, x1 = CONTENT_R * k, y = top + RAIL_HEAD * k;
+            for (int i = 1; i < Math.min(cards.size(), CARDS); i++) {
+                boolean more = "more".equals(cards.get(i).kind);
+                float h = (more ? RAIL_MORE_H : RAIL_ROW_H) * k;
+                if (more) y += 8 * k;
+                cardRects[i].set(x0, y, x1, y + h);
+                y += h + RAIL_GAP * k;
+            }
+            return;
+        }
         cardRects[1].set(cardRects[0].right + g, top, cardRects[0].right + g + tall, top + ch);
         cardRects[2].set(cardRects[1].right + g, top, cardRects[1].right + g + tall, top + ch);
     }
@@ -2260,6 +2314,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (!samePicks(list, cards)) {
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
+            if (tab == 0) layoutExploreCards();
             carDirty = true;
             if (zone == Z_CARDS && list.isEmpty()) {
                 zone = Z_SHELF;
@@ -2271,7 +2326,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 + new java.util.Locale("", Config.TMDB_REGION.trim().toUpperCase(java.util.Locale.ROOT)).getDisplayCountry(Ui.locale());
         Recs.Pick backgroundPick = null;     // the sports card has no photo: the background comes from the next card
         for (int i = tab == 0 ? 0 : Math.min(cardIndex, cards.size() - 1); i < cards.size() && backgroundPick == null; i++) {
-            if (!cards.get(i).kind.equals("sport")) backgroundPick = cards.get(i);
+            if (isFilm(cards.get(i))) backgroundPick = cards.get(i);
+        }
+        if (backgroundPick == null && rail()) {      // matchday: the background still comes from this hour's first title
+            List<Recs.Pick> films = recs.now(null);
+            if (!films.isEmpty()) backgroundPick = films.get(0);
         }
         Backdrop b = backgroundPick == null ? null : recs.backdrop(backgroundPick);
         if (cards.isEmpty() || backgroundPick == null || b != null) showBackdrop(b);
@@ -2285,12 +2344,32 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private List<Recs.Pick> explore() {
         List<Recs.Pick> films = recs.now(null);
-        Recs.Pick sport = Sports.get(getContext()).pick();
-        if (sport == null) return films;
+        Sports sports = Sports.get(getContext());
+        Recs.Pick sport = sports.pick(chosenSport);
+        if (sport == null) {
+            chosenSport = null;
+            return films;
+        }
+        if (chosenSport != null && sport.event != chosenSport) chosenSport = null;
+        // Matchday: the scoreboard, then the "Next" list (up to 4 events) and the full schedule.
         List<Recs.Pick> out = new ArrayList<>();
         out.add(sport);
-        for (int i = 0; i < films.size() && out.size() < 3; i++) out.add(films.get(i));
+        out.addAll(sports.next(sport.event, 4));
+        Recs.Pick more = new Recs.Pick();
+        more.kind = "more";
+        more.id = 1;
+        more.title = Ui.tr("Agenda completa", "Full schedule", "Agenda completa", "Calendario completo");
+        out.add(more);
         return out;
+    }
+
+    /** Explore shows the scoreboard and the "Next" list (rather than three picks). */
+    private boolean rail() {
+        return tab == 0 && cards.size() > 1 && "more".equals(cards.get(cards.size() - 1).kind);
+    }
+
+    private static boolean isFilm(Recs.Pick p) {
+        return !p.kind.equals("sport") && !p.kind.equals("row") && !p.kind.equals("more");
     }
 
     private void selectTab(int index) {
@@ -2373,6 +2452,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (tab != 0) {
             drawCarousel(c);
+        } else if (rail()) {
+            drawRail(c);
+            drawLightCard(c, 0);
         } else {
             int top = -1;
             for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
@@ -2434,8 +2516,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /**
-     * A match or race: the competition's artwork and color, its logo in white at the top center; for two sides, their
-     * logos with the time between and the names below; otherwise the title and the time.
+     * The scoreboard (matchday): the competition's artwork and color, its logo at the top left (the person's own in its
+     * colors, one found online as a white silhouette), LIVE or the day at the top right. Two sides: their logos and
+     * names, with the kick-off time (or the minute) big between them. A race: its name, session and place at the left,
+     * the start time at the right.
      */
     private void drawSportCard(Canvas c, Recs.Pick p, RectF area, float r) {
         Sports sports = Sports.get(getContext());
@@ -2458,44 +2542,161 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 c.drawRoundRect(area, r, r, fill);
             }
         }
-        float pad = 44 * k, width = area.width() - 2 * pad;
+        float pad = 44 * k;
         Bitmap comp = sports.bitmap(p.logoComp, null);
-        float logoBottom;
-        if (comp != null) {      // the competition's logo, in white, centered at the top
-            drawLogo(c, comp, area.centerX(), area.top + pad * 0.7f + 40 * k, 300 * k, 80 * k, true);
-            logoBottom = area.top + pad * 0.7f + 80 * k;
+        if (comp != null) {
+            float boxW = 240 * k, boxH = 64 * k, scale = Math.min(boxW / comp.getWidth(), boxH / comp.getHeight());
+            drawLogo(c, comp, area.left + pad + comp.getWidth() * scale / 2, area.top + pad + boxH / 2, boxW, boxH,
+                    !p.logoComp.startsWith("asset:"));
         } else {
-            c.drawText(p.label.toUpperCase(Ui.locale()), area.centerX() - lSportLabel.measureText(p.label.toUpperCase(Ui.locale())) / 2,
-                    area.top + pad + Ui.cap(lSportLabel), lSportLabel);
-            logoBottom = area.top + pad + Ui.cap(lSportLabel);
+            c.drawText(p.label, area.left + pad, area.top + pad + 32 * k + Ui.halfCap(lSportLabel), lSportLabel);
         }
-        int slash = p.meta.indexOf(" · ");
-        String when = slash < 0 ? p.meta : p.meta.substring(0, slash);
-        if (p.home.isEmpty() || p.away.isEmpty()) {
-            Paint face = p.face == 1 ? lSportF1 : p.face == 2 ? lSportMgp : lSportTitle;   // Formula 1 and MotoGP: their own fonts
-            TextPaint tp = new TextPaint(face);
-            String title = TextUtils.ellipsize(p.face != 0 ? p.title.toUpperCase(Ui.locale()) : p.title, tp, width, TextUtils.TruncateAt.END).toString();
-            c.drawText(title, area.left + pad, area.centerY() + Ui.halfCap(face) + 20 * k, face);
-            c.drawText(when, area.left + pad, area.bottom - pad, lSportWhen);
-            // MotoGP in alto a destra; Formula 1 mantiene la posizione originale.
-            Bitmap flag = sports.bitmap(p.flag, null);
-            if (flag != null) {
-                boolean motogp = p.face == 2;
-                float flagY = motogp ? area.top + pad + 32 * k : area.bottom - pad - 14 * k;
-                drawFlagCircle(c, flag, area.right - pad - 32 * k, flagY, 64 * k, motogp);
-            }
+        if (p.live) {
+            float ph = 38 * k, pw = lLive.measureText("LIVE") + 48 * k, right = area.right - pad, top = area.top + pad + 6 * k;
+            tmp.set(right - pw, top, right, top + ph);
+            fill.setShader(null);
+            fill.setColor(0xFFFF3B3B);
+            c.drawRoundRect(tmp, ph / 2, ph / 2, fill);
+            fill.setColor(0xFFFFFFFF);
+            c.drawCircle(tmp.left + 19 * k, tmp.centerY(), 5 * k, fill);
+            c.drawText("LIVE", tmp.left + 32 * k, tmp.centerY() + Ui.halfCap(lLive), lLive);
+        } else {
+            c.drawText(p.day, area.right - pad, area.top + pad + 25 * k + Ui.halfCap(lSportDay), lSportDay);
+        }
+        if (!p.home.isEmpty() && !p.away.isEmpty()) {
+            float size = 170 * k, cy = area.top + 120 * k + size / 2;
+            float leftX = area.left + 220 * k, rightX = area.right - 220 * k;
+            drawSide(c, sports.bitmap(p.logoHome, p.home), p.home, leftX, cy, size);
+            drawSide(c, sports.bitmap(p.logoAway, p.away), p.away, rightX, cy, size);
+            TextPaint np = new TextPaint(lSportTeam);
+            float maxName = 330 * k, nameBase = cy + size / 2 + 52 * k;
+            c.drawText(TextUtils.ellipsize(p.home, np, maxName, TextUtils.TruncateAt.END).toString(), leftX, nameBase, lSportTeam);
+            c.drawText(TextUtils.ellipsize(p.away, np, maxName, TextUtils.TruncateAt.END).toString(), rightX, nameBase, lSportTeam);
+            float mx = area.centerX();
+            boolean word = !p.board.isEmpty() && !Character.isDigit(p.board.charAt(0));
+            c.drawText(p.boardTop, mx, area.top + 158 * k, lBoardLine);
+            c.drawText(p.board, mx, area.top + (word ? 268 : 288) * k, word ? lBoardWord : lBoard);
+            if (!p.boardSub.isEmpty()) c.drawText(p.boardSub, mx, area.top + 340 * k, lBoardLine);
             return;
         }
-        float size = 190 * k;
-        float cy = (logoBottom + area.bottom - pad * 1.9f) / 2;
-        float leftX = area.left + area.width() * 0.25f, rightX = area.left + area.width() * 0.75f;
-        drawSide(c, sports.bitmap(p.logoHome, p.home), p.home, leftX, cy, size);
-        drawSide(c, sports.bitmap(p.logoAway, p.away), p.away, rightX, cy, size);
-        c.drawText(when, area.centerX() - lSportWhen.measureText(when) / 2, cy + Ui.halfCap(lSportWhen), lSportWhen);
-        TextPaint np = new TextPaint(lSportName);
-        float maxName = area.width() * 0.42f, nameBase = area.bottom - pad * 0.7f;
-        c.drawText(TextUtils.ellipsize(p.home, np, maxName, TextUtils.TruncateAt.END).toString(), leftX, nameBase, lSportName);
-        c.drawText(TextUtils.ellipsize(p.away, np, maxName, TextUtils.TruncateAt.END).toString(), rightX, nameBase, lSportName);
+        // A race (or an event without two sides): the name on up to two lines, then the session and place.
+        Paint face = p.face == 1 ? lSportF1 : p.face == 2 ? lSportMgp : lSportTitle;
+        float maxW = area.width() * 0.56f;
+        raceLines(p.face != 0 ? p.raceName.toUpperCase(Ui.locale()) : p.raceName, face, maxW);
+        float lh = face.getTextSize() * 1.1f, y = area.top + 150 * k + face.getTextSize() * 0.8f;
+        for (String line : raceLines) {
+            if (line == null || line.isEmpty()) continue;
+            c.drawText(line, area.left + pad, y, face);
+            y += lh;
+        }
+        float sx = area.left + pad, sy = y + 14 * k;
+        Bitmap flag = sports.bitmap(p.flag, null);
+        if (flag != null) {
+            drawFlagCircle(c, flag, sx + 23 * k, sy - 9 * k, 46 * k, false);
+            sx += 62 * k;
+        }
+        if (!p.raceLine.isEmpty()) c.drawText(p.raceLine, sx, sy, lSportWhen);
+        c.drawText(p.board, area.right - pad, area.top + 250 * k, lBoardRight);
+        if (!p.boardSub.isEmpty()) c.drawText(p.boardSub, area.right - pad, area.top + 296 * k, lBoardLineRight);
+    }
+
+    /** Splits a race's name into at most two lines that fit `width` (the second is shortened if needed); kept until it changes. */
+    private void raceLines(String title, Paint face, float width) {
+        String key = face.getTextSize() + "|" + title;
+        if (key.equals(raceLinesFor) && width == raceLinesWidth) return;
+        raceLinesFor = key;
+        raceLinesWidth = width;
+        String[] words = title.split(" ");
+        StringBuilder first = new StringBuilder();
+        int i = 0;
+        for (; i < words.length; i++) {
+            String next = first.length() == 0 ? words[i] : first + " " + words[i];
+            if (first.length() > 0 && face.measureText(next) > width) break;
+            first.setLength(0);
+            first.append(next);
+        }
+        StringBuilder rest = new StringBuilder();
+        for (; i < words.length; i++) rest.append(rest.length() == 0 ? "" : " ").append(words[i]);
+        TextPaint tp = new TextPaint(face);
+        raceLines[0] = TextUtils.ellipsize(first.toString(), tp, width, TextUtils.TruncateAt.END).toString();
+        raceLines[1] = TextUtils.ellipsize(rest.toString(), tp, width, TextUtils.TruncateAt.END).toString();
+    }
+
+    /**
+     * "Next": a heading, then one row per coming event (the person's logo for the competition or its colored dot, the
+     * time and day, the competition, the two sides with their badges or the race) and the full schedule. The focused
+     * row turns into a white pill, as the tabs do.
+     */
+    private void drawRail(Canvas c) {
+        Sports sports = Sports.get(getContext());
+        int n = Math.min(cards.size(), CARDS);
+        if (n < 2) return;
+        lRailHead.setColor(tone(L_DIM, 0xA6FFFFFF));
+        c.drawText(Ui.tr("Depois", "Next", "Después", "Dopo"), cardRects[1].left + 20 * k, cardRects[0].top + 28 * k, lRailHead);
+        for (int i = 1; i < n; i++) {
+            RectF row = cardRects[i];
+            Recs.Pick p = cards.get(i);
+            float f = Ui.clamp(cardFocus[i].value), s = 1 + 0.03f * f, cx = row.centerX(), cy = row.centerY();
+            cell.set(cx - row.width() * s / 2, cy - row.height() * s / 2, cx + row.width() * s / 2, cy + row.height() * s / 2);
+            fill.setShader(null);
+            if (f > 0.01f) {
+                fill.setColor(Ui.alpha(0xFFFFFFFF, f));
+                c.drawRoundRect(cell, 18 * k * s, 18 * k * s, fill);
+            } else if (i > 1 && !"more".equals(p.kind) && Ui.clamp(cardFocus[i - 1].value) < 0.01f) {
+                fill.setColor(tone(0x1A000000, 0x1FFFFFFF));
+                float ly = row.top - RAIL_GAP * k / 2;
+                c.drawRect(row.left + 20 * k, ly - 0.75f * k, row.right - 18 * k, ly + 0.75f * k, fill);
+            }
+            int ink = blend(tone(L_INK, WHITE), L_INK, f), dim = blend(tone(L_DIM, 0xA6FFFFFF), L_DIM, f);
+            int faint = blend(tone(L_FAINT, 0x73FFFFFF), L_FAINT, f);
+            if ("more".equals(p.kind)) {
+                lRailMore.setColor(blend(dim, L_INK, f));
+                c.drawText(p.title, row.left + 20 * k, cy + Ui.halfCap(lRailMore), lRailMore);
+                continue;
+            }
+            float x = row.left + 20 * k;
+            Bitmap own = p.logoComp.startsWith("asset:") ? sports.bitmap(p.logoComp, null) : null;
+            if (own != null) {
+                drawLogo(c, own, x + 10 * k, cy, 34 * k, 34 * k, false);
+            } else {
+                fill.setColor(p.dot);
+                c.drawCircle(x + 5 * k, cy, 5 * k, fill);
+            }
+            x += 30 * k;
+            lRailTime.setColor(p.live ? 0xFFFF3B3B : ink);
+            c.drawText(p.live ? "LIVE" : p.clock, x, cy + 4 * k, lRailTime);
+            lRailSmall.setColor(faint);
+            c.drawText(p.day, x, cy + 26 * k, lRailSmall);
+            x += 100 * k;
+            float right = row.right - 18 * k;
+            c.save();
+            c.clipRect(x, row.top, right, row.bottom);
+            lRailSmall.setColor(dim);
+            c.drawText(p.label, x, cy - 12 * k, lRailSmall);
+            lRailText.setColor(ink);
+            float ty = cy + 20 * k;
+            if (!p.home.isEmpty() && !p.away.isEmpty()) {
+                x = railSide(c, sports.bitmap(p.logoHome, p.home), p.homeShort, x, ty);
+                lRailText.setColor(faint);
+                c.drawText("–", x, ty, lRailText);
+                x += lRailText.measureText("–") + 10 * k;
+                lRailText.setColor(ink);
+                railSide(c, sports.bitmap(p.logoAway, p.away), p.awayShort, x, ty);
+            } else {
+                c.drawText(p.raceLine.isEmpty() ? p.raceName : p.raceName + ", " + p.session, x, ty, lRailText);
+            }
+            c.restore();
+        }
+    }
+
+    /** One side in a "Next" row: its badge (when loaded) and name; returns where the next thing goes. */
+    private float railSide(Canvas c, Bitmap logo, String name, float x, float y) {
+        if (logo != null) {
+            drawLogo(c, logo, x + 14 * k, y - 8 * k, 28 * k, 28 * k, false);
+            x += 37 * k;
+        }
+        c.drawText(name, x, y, lRailText);
+        return x + lRailText.measureText(name) + 10 * k;
     }
 
     /** A flag in a circle (its middle, as a square), with a thin light ring. */
@@ -2743,9 +2944,41 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 } else {
                     zone = Z_CARDS;
                     if (tab == 0) cardIndex = nearest(cardRects, cards.size(), tileRects[shelfIndex].centerX());
+                    if (rail() && cardIndex > 0) cardIndex = Math.min(cards.size(), CARDS) - 1;   // up from the shelf: the list's last row
                 }
                 break;
             case Z_CARDS:
+                if (rail()) {
+                    // Matchday: ← → between the scoreboard and the "Next" list, ↑ ↓ along the list.
+                    int last = Math.min(cards.size(), CARDS) - 1;
+                    if (cardIndex == 0) {
+                        if (dx > 0) cardIndex = 1;
+                        else if (dx < 0) return true;
+                        else if (dy < 0) {
+                            zone = Z_TOP;
+                            topIndex = tab;
+                        } else {
+                            zone = Z_SHELF;
+                            if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[0].centerX());
+                        }
+                    } else if (dx < 0) {
+                        cardIndex = 0;
+                    } else if (dx > 0) {
+                        return true;
+                    } else if (dy < 0) {
+                        if (cardIndex > 1) cardIndex--;
+                        else {
+                            zone = Z_TOP;
+                            topIndex = nearest(topRects, TOP, cardRects[1].centerX());
+                        }
+                    } else if (cardIndex < last) {
+                        cardIndex++;
+                    } else {
+                        zone = Z_SHELF;
+                        if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[cardIndex].centerX());
+                    }
+                    break;
+                }
                 if (dx != 0) {
                     int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
                     if (next == cardIndex) return true;

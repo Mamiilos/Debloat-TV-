@@ -105,15 +105,75 @@ final class Sports {
      * among events at the same time.
      */
     Recs.Pick pick() {
+        return pick(null);
+    }
+
+    /** The scoreboard's event: `chosen` (picked from the "Next" list) while it isn't over, otherwise the best one. */
+    Recs.Pick pick(Event chosen) {
         if (!Config.SPORTS) return null;
         long now = System.currentTimeMillis();
+        if (chosen != null && !chosen.done && now < chosen.start + chosen.minutes * 60_000L) return pickFor(chosen, now);
         boolean italy = Ui.it || "IT".equalsIgnoreCase(Config.TMDB_REGION.trim());
         Event best = null;
         for (Event e : events) {
             if (e.done || now >= e.start + e.minutes * 60_000L || e.start > now + AHEAD) continue;
             if (best == null || before(e, best, now, italy)) best = e;
         }
-        if (best == null) return null;
+        return best == null ? null : pickFor(best, now);
+    }
+
+    /** The "Next" list beside the scoreboard: up to `max` events of the coming days, in the scoreboard's order. */
+    List<Recs.Pick> next(Event exclude, int max) {
+        List<Recs.Pick> out = new ArrayList<>();
+        if (!Config.SPORTS) return out;
+        long now = System.currentTimeMillis();
+        boolean italy = Ui.it || "IT".equalsIgnoreCase(Config.TMDB_REGION.trim());
+        List<Event> list = new ArrayList<>();
+        for (Event e : events) {
+            if (e == exclude || e.done || now >= e.start + e.minutes * 60_000L || e.start > now + 4 * 86_400_000L) continue;
+            list.add(e);
+        }
+        java.util.Collections.sort(list, (a, b) -> a == b ? 0 : before(a, b, now, italy) ? -1 : 1);
+        for (int i = 0; i < list.size() && out.size() < max; i++) {
+            Recs.Pick p = pickFor(list.get(i), now);
+            p.kind = "row";
+            out.add(p);
+        }
+        return out;
+    }
+
+    /** File names (without extension) of each competition's picture in app/assets/sports and logo in app/assets/sports/logos. */
+    private static final String[] ASSET = {"seriea", "champions", "europa", "f1", "motogp", "tennis", "premier", "laliga", "bundesliga", "ligue1"};
+    private static final String[] LOGO_ASSET = {"seriea", "champions", "europa", "formula1", "motogp", "tennis", "premier", "laliga", "bundesliga", "ligue1"};
+    /** The dot beside each competition in the "Next" list. */
+    private static final int[] DOT = {0xFF38A8BC, 0xFF5B7BFF, 0xFFF07A1A, 0xFFE10600, 0xFFE8590C, 0xFF3BAA6C, 0xFFA64CC8, 0xFFEE8707, 0xFFFF2D3A, 0xFF2F6BFF};
+    private java.util.Set<String> sportAssets, logoAssets;
+
+    /** "asset:sports/<dir>/<name>.<ext>" for the first of webp, jpg, png that the app has, or "". The listing is read once. */
+    private String asset(boolean logo, String name) {
+        if (sportAssets == null) {
+            sportAssets = list("sports");
+            logoAssets = list("sports/logos");
+        }
+        java.util.Set<String> have = logo ? logoAssets : sportAssets;
+        for (String ext : logo ? new String[] {"png", "webp"} : new String[] {"webp", "jpg", "png"}) {
+            if (have.contains(name + "." + ext)) return "asset:sports/" + (logo ? "logos/" : "") + name + "." + ext;
+        }
+        return "";
+    }
+
+    private java.util.Set<String> list(String dir) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        try {
+            String[] names = context.getAssets().list(dir);
+            if (names != null) java.util.Collections.addAll(out, names);
+        } catch (IOException ignored) {
+        }
+        return out;
+    }
+
+    /** The card for one event, with the scoreboard's lines worked out for `now`. */
+    private Recs.Pick pickFor(Event best, long now) {
         String[] opener = opener();
         String pkg = opener[0], app = opener[1];
         Recs.Pick p = new Recs.Pick();
@@ -122,11 +182,16 @@ final class Sports {
         p.away = best.away;
         p.logoHome = best.logoHome;
         p.logoAway = best.logoAway;
-        p.logoComp = localCompetitionLogo(best.sport, best.logoComp);
-        // The competition's own picture is chosen here, not saved with the event, so a new picture applies at once.
-        p.art = best.sport == CHAMPIONS ? art(Config.CHAMPIONS_ART, "asset:sports/champions.webp")
-                : best.sport == EUROPA ? art(Config.EUROPA_ART, "asset:sports/europa.jpg")
-                : best.sport == F1 ? "asset:sports/f1.webp" : best.sport == MOTO ? motoArt() : best.sport == SERIE_A ? art(Config.SERIEA_ART, "asset:sports/seriea.webp") : best.art;
+        // The person's own logo (app/assets/sports/logos) wins over the one found online; it keeps its colors.
+        String ownLogo = asset(true, LOGO_ASSET[best.sport]);
+        p.logoComp = ownLogo.isEmpty() ? best.logoComp : ownLogo;
+        // The competition's own picture is chosen here, not saved with the event, so a new picture applies at once:
+        // the link in config.properties, then the picture in app/assets/sports, then the one found online.
+        String bundled = asset(false, ASSET[best.sport]);
+        p.art = best.sport == CHAMPIONS ? art(Config.CHAMPIONS_ART, bundled)
+                : best.sport == EUROPA ? art(Config.EUROPA_ART, bundled)
+                : best.sport == SERIE_A ? art(Config.SERIEA_ART, bundled)
+                : !bundled.isEmpty() ? bundled : best.sport == MOTO ? MOTOGP_BAR : best.art;
         p.title = best.title;
         p.accent = ACCENT[best.sport];
         p.flat = best.sport == F1 || best.sport == MOTO;     // Formula 1 and MotoGP: a flat color with their artwork over it
@@ -141,8 +206,86 @@ final class Sports {
         p.pkg = pkg.isEmpty() ? null : pkg;
         p.detailed = true;
         p.meta = when(best.start, now) + (app.isEmpty() ? "" : " · " + app);
-        p.id = (p.title + p.meta).hashCode();
+        board(p, best, now);
+        p.id = (p.title + p.meta + p.board + p.boardSub).hashCode();
         return p;
+    }
+
+    /** The scoreboard's lines: before the start, the kick-off time and a countdown; during it, the (estimated) minute. */
+    private static void board(Recs.Pick p, Event e, long now) {
+        java.text.SimpleDateFormat hm = new java.text.SimpleDateFormat("HH:mm", Locale.US);
+        p.start = e.start;
+        p.event = e;
+        p.dot = DOT[e.sport];
+        p.clock = hm.format(new Date(e.start));
+        p.day = day(e.start, now);
+        p.live = e.start <= now;
+        int cut = e.title.lastIndexOf(" · ");
+        p.raceName = cut < 0 ? e.title : e.title.substring(0, cut);
+        p.session = cut < 0 ? "" : e.title.substring(cut + 3);
+        boolean race = e.sport == F1 || e.sport == MOTO;
+        boolean football = !race && e.sport != TENNIS;
+        p.homeShort = e.sport == TENNIS ? surname(e.home) : e.home;
+        p.awayShort = e.sport == TENNIS ? surname(e.away) : e.away;
+        p.raceLine = p.session.isEmpty() ? p.place : p.place.isEmpty() ? p.session : p.session + ", " + p.place;
+        if (!p.live) {
+            p.board = p.clock;
+            p.boardTop = football ? Ui.tr("Pontapé inicial", "Kick-off", "Saque inicial", "Calcio d'inizio") : Ui.tr("Início", "Start", "Inicio", "Inizio");
+            p.boardSub = countdown(e.start - now);
+            return;
+        }
+        int m = (int) ((now - e.start) / 60_000L);
+        p.boardTop = Ui.tr("Começou às ", "Started at ", "Empezó a las ", "Iniziata alle ") + p.clock;
+        if (!football) {
+            p.board = race ? "LIVE" : Ui.tr("Ao vivo", "Live", "En vivo", "In corso");
+            p.boardSub = race ? Ui.tr("Ao vivo", "Live now", "En vivo", "In corso") : "";
+            return;
+        }
+        // Football: 45 minutes, about 16 of break, then the second half (the free sources give no live clock).
+        if (m < 46) {
+            p.board = Math.max(1, m) + "'";
+            p.boardSub = Ui.tr("Primeiro tempo", "First half", "Primer tiempo", "Primo tempo");
+        } else if (m < 62) {
+            p.board = Ui.tr("Intervalo", "Half-time", "Descanso", "Intervallo");
+            p.boardSub = "";
+        } else {
+            p.board = m - 17 > 90 ? "90'+" : (m - 17) + "'";
+            p.boardSub = Ui.tr("Segundo tempo", "Second half", "Segundo tiempo", "Secondo tempo");
+        }
+    }
+
+    private static String surname(String name) {
+        String n = name == null ? "" : name.trim();
+        int sp = n.lastIndexOf(' ');
+        return sp < 0 ? n : n.substring(sp + 1);
+    }
+
+    /** "in 4 h 12 min", "in 42 min", "in 2 days". */
+    private static String countdown(long ms) {
+        long m = Math.max(0, Math.round(ms / 60_000.0));
+        if (m < 1) return Ui.tr("já vai começar", "starting soon", "a punto de empezar", "tra poco");
+        String in = Ui.tr("em ", "in ", "en ", "tra ");
+        if (m < 60) return in + m + " min";
+        long h = m / 60;
+        if (h < 24) return in + h + " h " + (m % 60 < 10 ? "0" : "") + (m % 60) + " min";
+        long d = Math.round(h / 24.0);
+        return d == 1 ? Ui.tr("amanhã", "in a day", "en un día", "tra un giorno") : in + d + " " + Ui.tr("dias", "days", "días", "giorni");
+    }
+
+    /** "Today", "Tomorrow" or the weekday, capitalized. */
+    private static String day(long start, long now) {
+        Calendar a = Calendar.getInstance(), b = Calendar.getInstance();
+        a.setTimeInMillis(now);
+        b.setTimeInMillis(start);
+        if (a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR) && a.get(Calendar.YEAR) == b.get(Calendar.YEAR)) {
+            return Ui.tr("Hoje", "Today", "Hoy", "Oggi");
+        }
+        a.add(Calendar.DAY_OF_YEAR, 1);
+        if (a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR) && a.get(Calendar.YEAR) == b.get(Calendar.YEAR)) {
+            return Ui.tr("Amanhã", "Tomorrow", "Mañana", "Domani");
+        }
+        String w = new SimpleDateFormat("EEEE", Ui.locale()).format(new Date(start));
+        return w.isEmpty() ? w : Character.toUpperCase(w.charAt(0)) + w.substring(1);
     }
 
     /** Whether `a` should be shown before `b`: what is on now first, then by start (half-hour slots), then by who plays. */
@@ -395,34 +538,7 @@ final class Sports {
         return false;
     }
 
-    // Loghi ufficiali facoltativi in app/assets/sports/logos/*.png; niente download a runtime.
-    private String localCompetitionLogo(int sport, String fallback) {
-        String[] names = {"seriea.png", "champions.png", "europa.png", "formula1.png", "motogp.png"};
-        if (sport < 0 || sport >= names.length) return fallback;
-        try {
-            String[] assets = context.getAssets().list("sports/logos");
-            if (assets != null) for (String name : assets) {
-                if (name.equals(names[sport])) return "asset:sports/logos/" + name;
-            }
-        } catch (IOException ignored) {
-        }
-        return fallback;
-    }
     private static final String MOTOGP_BAR = "https://www.motogp.com/resources/v8.28.8/i/svg-files/elements/slim-bar-background.svg";
-
-    /** MotoGP's background: the converted picture in the app if tools/sport_assets.py made it, else the SVG online. */
-    private String motoArt() {
-        try {
-            for (String name : context.getAssets().list("sports")) {
-                if (name.equals("motogp.webp")) return "asset:sports/motogp.webp";
-            }
-            for (String name : context.getAssets().list("sports")) {
-                if (name.equals("motogp.png")) return "asset:sports/motogp.png";
-            }
-        } catch (IOException ignored) {
-        }
-        return MOTOGP_BAR;
-    }
 
     private static final String[][] COUNTRIES = {{"italy", "it"}, {"italia", "it"}, {"italian", "it"}, {"emilia", "it"}, {"mugello", "it"},
             {"monza", "it"}, {"misano", "it"}, {"imola", "it"}, {"san marino", "sm"}, {"spain", "es"}, {"spagna", "es"}, {"spanish", "es"},
