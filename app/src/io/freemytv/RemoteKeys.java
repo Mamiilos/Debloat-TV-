@@ -18,7 +18,8 @@ import android.view.KeyEvent;
  * On Sony TVs, the app buttons (and the Google Play button of older remotes) are global keys for Sony's own receiver;
  * the filter sees them first, the same way.
  * On Xiaomi TVs whose remote has no Home button, its Mi button is BUTTON_4, a global key that Xiaomi's GlobalKeyReceiver
- * (partnercustomizer) turns into PatchWall. The filter sees it first, and by default it opens the home screen.
+ * (partnercustomizer) turns into PatchWall. The filter sees it first, and by default it opens the home screen. The
+ * MiTV-MOOQ1's Mi button sends BUTTON_5 instead, so that key is listed as Mi there rather than PatchWall.
  * On Xiaomi TVs the YouTube button is ours too: BUTTON_3, a global key for the stock home screen (launcherx), which
  * Free My TV turns off. So is the PatchWall button (BUTTON_5, which that receiver would open PatchWall with); Netflix
  * goes to the receiver, which stays on. Their remote sends one press as a burst of presses: the app opens once.
@@ -44,6 +45,7 @@ final class RemoteKeys {
      * devices we run on, whose remotes have a Home button; Formovie's Xiaomi projectors have their own remote.
      */
     static final boolean XIAOMI = is("Xiaomi") && !FORMOVIE && Build.MODEL.startsWith("MiTV-M");
+    static final boolean XIAOMI_MOOQ1 = XIAOMI && Build.MODEL.equals("MiTV-MOOQ1");
     /** Brands whose Netflix button is STEM_1, a global key (MediaTek): only that button is ours. */
     static final boolean STEM_NETFLIX = VESTEL || FORMOVIE;
 

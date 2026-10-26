@@ -929,6 +929,9 @@ public class SettingsActivity extends Activity {
                     Ui.tr("Disney+ button"), Ui.tr("All Apps button"), Ui.tr("Settings button"), Ui.tr("Profile button")};
             if (RemoteKeys.STEM_NETFLIX) return new String[] {Ui.tr("Netflix button")};
             if (RemoteKeys.KTC) return new String[] {Ui.tr("Tabii button")};
+            if (RemoteKeys.XIAOMI_MOOQ1) return new String[] {Ui.tr("Mi button"), Ui.tr("YouTube button"),
+                    Ui.tr("Okko button"), Ui.tr("VK button"), Ui.tr("Rutube button"), Ui.tr("KION button"),
+                    Ui.tr("Wink button"), Ui.tr("IVI button")};
             if (RemoteKeys.XIAOMI) return new String[] {Ui.tr("Mi button"), Ui.tr("YouTube button"), Ui.tr("PatchWall button"),
                     Ui.tr("Okko button"), Ui.tr("VK button"), Ui.tr("Rutube button"), Ui.tr("KION button"),
                     Ui.tr("Wink button"), Ui.tr("IVI button")};
