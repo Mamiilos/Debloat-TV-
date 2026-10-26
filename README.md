@@ -205,6 +205,22 @@ Free My TV runs on Google TV and Android TV: TCL, Sony, Hisense, Philips, Xiaomi
 
 **Any other TV:** plug a Google TV streamer into HDMI and free that one. Same steps, same home screen.
 
+**Amazon Fire TV:** Amazon keeps the Home button for its own home screen, so Free My TV is an app there: its icon opens
+the home screen, and nothing on the TV is switched or turned off. To have the Home button open Free My TV too, allow it
+once from the computer, after installing:
+
+```bash
+adb shell pm grant io.freemytv android.permission.WRITE_SECURE_SETTINGS
+```
+
+Then open Free My TV once. When Amazon's home screen comes up (the Home button, or the TV starting), Free My TV's opens
+over it, a moment later. To give the Home button back to Amazon:
+
+```bash
+adb shell pm revoke io.freemytv android.permission.WRITE_SECURE_SETTINGS
+adb shell settings put secure enabled_accessibility_services "$(adb shell settings get secure enabled_accessibility_services | tr -d '\r' | tr ':' '\n' | grep -v '^io.freemytv/' | paste -sd: -)"
+```
+
 **A different brand or model:** ask Claude. Free My TV is made to be adapted by AI. Open the folder in Claude Code and say *"set it up for my Sony"*: it reads your TV, finds its home screen and its promo apps, updates the lists below and walks you through a test. [CLAUDE.md](CLAUDE.md) tells it how.
 
 | What | Where |

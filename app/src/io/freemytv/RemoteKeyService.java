@@ -13,7 +13,15 @@ public class RemoteKeyService extends AccessibilityService {
         return RemoteKeys.onKey(this, event);
     }
 
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
+    @Override protected void onServiceConnected() {
+        FireHome.connected(this);
+    }
+
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            FireHome.window(this, event.getPackageName(), event.getClassName());
+        }
+    }
 
     @Override public void onInterrupt() {}
 }

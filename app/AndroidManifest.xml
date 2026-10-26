@@ -15,6 +15,9 @@
     <!-- The sleep timer on time: from Android 12, windows under 10 minutes stretch to 10. No prompt for either. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Fire TV only: lets the Home button open Free My TV (FireHome turns its key service back on after an update).
+         Granted once over adb, never asked for. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <!-- Android 11+: without this list the app can't "see" the other apps (getLeanbackLaunchIntentForPackage
          returns null). The shelf and streaming apps, the live TV apps and, through the <intent>, every TV app
@@ -62,6 +65,7 @@
         <package android:name="com.xiaomi.mitv.tvplayer" />
         <package android:name="com.amazon.tv.livetv" />
         <package android:name="com.amazon.tv.inputpreference.service" />
+        <package android:name="com.amazon.tv.launcher" />
         <package android:name="com.amazon.mediatek.livetv" />
         <intent>
             <action android:name="android.intent.action.MAIN" />

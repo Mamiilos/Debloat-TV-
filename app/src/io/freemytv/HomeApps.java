@@ -556,7 +556,7 @@ final class HomeApps {
                 intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));
                 break;
             case ANDROID_SETTINGS:
-                intent = new Intent(Settings.ACTION_SETTINGS);
+                intent = settingsIntent(a);
                 break;
             case DEVICE:
                 // A fresh task: else Back walks through whatever the maker's settings app had open before
@@ -605,6 +605,19 @@ final class HomeApps {
             AppLog.w("Amazon's input switch: " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * The TV's own settings. On Fire TV, Android's settings request goes through Amazon's home screen, which FireHome
+     * hands straight back to Free My TV: there it's Amazon's settings screen itself.
+     */
+    static Intent settingsIntent(Context c) {
+        if (HomeMode.AMAZON) {
+            Intent amazon = new Intent(Intent.ACTION_MAIN).addCategory("android.intent.category.LEANBACK_SETTINGS")
+                    .setComponent(new ComponentName("com.amazon.tv.launcher", "com.amazon.tv.launcher.ui.MainSettingsActivity"));
+            if (amazon.resolveActivity(c.getPackageManager()) != null) return amazon;
+        }
+        return new Intent(Settings.ACTION_SETTINGS);
     }
 
     /**

@@ -24,7 +24,12 @@ before you do it, and let them do the taps on the TV.
   The Kalley 43G200 (`R3_GTV`) turns it back on at every start and boot-looped without its home screen: the switch
   refuses there. On Amazon Fire TV (Fire OS: `HomeMode.AMAZON`), Amazon's launcher keeps the Home button (`priority=950`
   on `CATEGORY_HOME`), so the switch refuses Free My TV mode while *Original* and the watchdog still run, and no
-  `com.amazon.*` package is ever turned off (`mayTurnOff`).
+  `com.amazon.*` package is ever turned off (`mayTurnOff`). The Home button comes to Free My TV through `FireHome`:
+  `RemoteKeyService` sees Amazon's `com.amazon.tv.launcher/.ui.HomeActivity_vNext` come to the front (and, in the first
+  3 minutes after a start, opens over it as it connects) and opens `FireHomeActivity`. The service is turned on by the
+  app itself (`FireHome.ensureService`, each time `FireHomeActivity` resumes) once `WRITE_SECURE_SETTINGS` was granted
+  over adb; without it nothing changes. Android's settings request goes through Amazon's home screen there, so TV
+  Settings opens `com.amazon.tv.launcher/.ui.MainSettingsActivity` (`HomeApps.settingsIntent`).
 - Never turn off an app that saved a Wi-Fi network: Android deletes its networks and Original can't bring them
   back (`wifiOwners` in `HomeMode`). When the Wi-Fi service doesn't answer, the switch stops on Wi-Fi, and the boot
   check leaves the setup app and the stock home screen for later.
