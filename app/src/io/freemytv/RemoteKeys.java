@@ -26,6 +26,8 @@ import android.view.KeyEvent;
  * hot-key receiver (partnercustomizer's GlobalKeyReceiver).
  * On Hisense TVs, the Prime Video, YouTube, Disney+, All Apps, Settings (gear) and profile buttons go to Google TV's
  * home app, which Free My TV mode turns off: without the filter they do nothing. Netflix stays with the system.
+ * On Dangbei projectors the Apps button is ALL_APPS too: the system hands it to the home screen only if it's a system
+ * app (launcherx), so with Free My TV it did nothing. Only that button is ours.
  */
 final class RemoteKeys {
     private RemoteKeys() {}
@@ -38,7 +40,7 @@ final class RemoteKeys {
      * Vestel builds TVs sold under other brands (F&U...), so BRAND varies: check the maker too.
      */
     static final boolean TCL = is("TCL"), VESTEL = is("Vestel"), KTC = is("KTC"), SONY = is("Sony"), FORMOVIE = is("Formovie"),
-            HISENSE = is("Hisense");
+            HISENSE = is("Hisense"), DANGBEI = is("Dangbei");
     /**
      * Xiaomi TVs (models MiTV-M…; MiTV-MSSP3, MediaTek, Android TV 9 tested). Not the Mi Box or Mi TV Stick, the slowest
      * devices we run on, whose remotes have a Home button; Formovie's Xiaomi projectors have their own remote.
@@ -53,7 +55,7 @@ final class RemoteKeys {
     private static long lastDown;
 
     static boolean supported() {
-        return TCL || STEM_NETFLIX || KTC || SONY || XIAOMI || HISENSE;
+        return TCL || STEM_NETFLIX || KTC || SONY || XIAOMI || HISENSE || DANGBEI;
     }
 
     private static boolean is(String maker) {
