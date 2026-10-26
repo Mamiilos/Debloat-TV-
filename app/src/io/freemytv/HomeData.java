@@ -2,6 +2,8 @@ package io.freemytv;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -179,6 +181,20 @@ final class HomeData {
                 weatherFor = weatherPlace();
             }
         } catch (Exception ignored) {}
+        // As for the picks: a fetch made before the Wi-Fi is up (the TV just started) is tried again when it comes.
+        try {
+            ConnectivityManager cm = c.getSystemService(ConnectivityManager.class);
+            if (cm != null) cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network network) {
+                    if (pricesFailedAt == 0 && weatherFailedAt == 0) return;
+                    pricesFailedAt = 0;
+                    weatherFailedAt = 0;
+                    main.postDelayed(HomeData.this::refreshIfStale, 2000);
+                }
+            });
+        } catch (RuntimeException e) {
+            AppLog.w("weather: no network callback: " + e.getMessage());
+        }
     }
 
     void addListener(Listener l) { if (!listeners.contains(l)) listeners.add(l); }
@@ -200,6 +216,12 @@ final class HomeData {
                         inDollars = true;
                         cache.edit().putString("dollarsFor", CURRENCY).apply();
                         AppLog.w("prices: Binance has no " + CURRENCY + " pairs, using dollars");
+                        body = getPrices();
+                    }
+                    if (!inDollars && !CURRENCY.equals("USD") && halted(body, System.currentTimeMillis())) {
+                        // Not saved, unlike a currency Binance doesn't list: the market may open again (next start).
+                        inDollars = true;
+                        AppLog.w("prices: Binance has halted its " + CURRENCY + " pairs, using dollars");
                         body = getPrices();
                     }
                     parsePrices(body);
@@ -243,6 +265,19 @@ final class HomeData {
 
     private void notifyListeners() {
         main.post(() -> { for (Listener l : new ArrayList<>(listeners)) l.onData(); });
+    }
+
+    /**
+     * A pair with no trade for a day: Binance halted it and keeps answering with the frozen last price (its AUD pairs
+     * since 2026-10-06, BTC at AUD 37,000 for AUD 115,000).
+     */
+    static boolean halted(String body, long now) throws Exception {
+        JSONArray list = new JSONArray(body);
+        for (int i = 0; i < list.length(); i++) {
+            long close = list.getJSONObject(i).optLong("closeTime", 0);
+            if (close > 0 && now - close > 24 * 60 * 60_000L) return true;
+        }
+        return false;
     }
 
     private void parsePrices(String body) throws Exception {

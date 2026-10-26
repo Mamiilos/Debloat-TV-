@@ -32,6 +32,10 @@ elif [ ! -f config.properties ]; then
   cp config.example.properties config.properties
   echo "Created config.properties: add your TMDB key and your city there (optional), then build again."
 fi
+# Notepad's "Unicode" is UTF-16: grep would find no keys in it and build every default without a word.
+case "$(head -c 2 "$CONFIG" 2>/dev/null | od -An -tx1 | tr -d ' \n')" in
+  fffe|feff) echo "config.properties is saved as UTF-16 (Notepad's \"Unicode\"). Save it as UTF-8 and build again." >&2; exit 1 ;;
+esac
 prop() {
   local v
   v="$(grep -E "^[[:space:]]*$1[[:space:]]*=" "$CONFIG" | tail -1 | cut -d= -f2- || true)"
@@ -54,6 +58,7 @@ fi
 ASSIST=false; [ "$(prop disable_assistant false)" = "true" ] && ASSIST=true
 CRYPTO=false; [ "$(prop show_crypto true)" = "true" ] && CRYPTO=true
 ANIMATION=false; [ "$(prop hide_animation false)" = "true" ] && ANIMATION=true
+SAVER=true; [ "$(prop screensaver true)" = "false" ] && SAVER=false
 
 rm -rf out && mkdir -p out/gen/io/freemytv out/classes
 cat > out/gen/io/freemytv/Config.java <<EOF
@@ -77,6 +82,8 @@ final class Config {
     static final boolean DISABLE_ASSISTANT = $ASSIST;
     static final boolean SHOW_CRYPTO = $CRYPTO;
     static final boolean HIDE_ANIMATION = $ANIMATION;
+    static final boolean SCREENSAVER = $SAVER;   // false: the TV keeps its own
+    static final boolean GENERIC = $GENERIC;   // built with --generic, as the APK on GitHub's releases (Updates)
 }
 EOF
 

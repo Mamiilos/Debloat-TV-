@@ -16,10 +16,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * When each app was last opened from Free My TV (the shelf, All Apps, the picks), for the shelf's "Last opened first"
- * order (Prefs.shelfRecent). Apps opened some other way (the TV's own buttons, another app) aren't seen: that would need
- * an accessibility service, which only some TVs run. Kept in memory in the home screen's process and saved to a small
- * file ("package<TAB>time" a line), replaced whole on each save so a crash never leaves half of it.
+ * When each app was last opened from Free My TV (the shelf, All Apps, the picks, the screensaver), for the shelf's
+ * "Last opened first" order (Prefs.shelfRecent). Apps opened some other way (the TV's own buttons, another app) aren't
+ * seen: that would need an accessibility service, which only some TVs run. Kept in memory in the home screen's process
+ * and saved to a small file ("package<TAB>time" a line), replaced whole on each save so a crash never leaves half of it.
  */
 final class Recent {
     private Recent() {}
@@ -39,6 +39,7 @@ final class Recent {
         WRITER.execute(() -> {
             String text;
             synchronized (Recent.class) {
+                opened = null;   // read again: the screensaver can open an app from another process
                 Map<String, Long> map = load(app);
                 map.put(pkg, now);
                 List<Map.Entry<String, Long>> newest = newestFirst(map);

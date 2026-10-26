@@ -34,6 +34,9 @@
     var ns = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', '0 0 32 32');
+    // Old WebKit (Tizen 2) draws an SVG without them at 300×150; the CSS still sets the size everywhere it's shown.
+    svg.setAttribute('width', '15');
+    svg.setAttribute('height', '15');
     for (var k = 0; k < c.length; k++) {
       var p = document.createElementNS(ns, 'path');
       p.setAttribute('d', c[k]);
@@ -216,10 +219,30 @@
     return Math.max(rgb[0], rgb[1], rgb[2]) - Math.min(rgb[0], rgb[1], rgb[2]) >= 96;
   }
 
+  /**
+   * The logo's box in its own proportions, as large as object-fit: contain draws it. Chrome 38 (webOS 3) ignores
+   * object-fit while a tile next to it animates, and the logo stretched to its 70% x 50% box until the move ended.
+   * Not laid out yet (a closed sheet): object-fit stays, and fitLogos() runs when the sheet opens.
+   */
+  function fitLogo(img) {
+    var box = img.parentNode, bw = img.offsetWidth, bh = img.offsetHeight, nw = img.naturalWidth, nh = img.naturalHeight;
+    if (!box || !bw || !bh || !nw || !nh || img.style.width) return;
+    var s = Math.min(bw / nw, bh / nh);
+    img.style.width = nw * s / box.offsetWidth * 100 + '%';
+    img.style.height = nh * s / box.offsetHeight * 100 + '%';
+  }
+
+  function fitLogos(root) {
+    var imgs = root.querySelectorAll('img.logo');
+    for (var i = 0; i < imgs.length; i++) if (imgs[i].complete) fitLogo(imgs[i]);
+  }
+
   /** own: the tile has the TV's color for the app, not one of SHELF's. */
   function showLogo(img, box, top, bottom, logo, own) {
     img.className = 'logo';
+    img.onload = function () { img.onload = null; fitLogo(img); };
     img.src = logo.src;
+    if (img.complete) fitLogo(img);
     var a = rgbOf(top), z = rgbOf(bottom);
     var tileLum = (luminance(a[0], a[1], a[2]) + luminance(z[0], z[1], z[2])) / 2;
     // The tile takes the icon's background when the logo only reads on it, and when that background is the brand's
@@ -292,11 +315,11 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', ABOUT: 'about'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.ABOUT; }
 
   function updateFocus() {
     var i, list;
@@ -323,6 +346,7 @@
     focusRows($('shelfedit'), st.edit, st.zone === Z.EDIT);
     focusRows($('langpick'), st.lang, st.zone === Z.LANG);
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
+    focusRows($('citypick'), st.city, st.zone === Z.CITY);
     setClass(body, 'drawer-open', st.zone === Z.DRAWER);
   }
 
@@ -530,7 +554,7 @@
     drawerInputs = drawerItems.length;
     drawerItems.push({label: tr('All Apps'), symbol: 'apps', run: openApps});
     drawerItems.push({label: tr('Home Settings'), symbol: 'settings', run: openSettings});
-    drawerItems.push({label: tr('TV Settings'), symbol: 'tv_settings', run: tvSettings});
+    if (TV.canOpenSettings) drawerItems.push({label: tr('TV Settings'), symbol: 'tv_settings', run: tvSettings});
     var n = drawerItems.length, gap = 18, groupGap = 56, groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
     var tw = Math.min(230, (1760 - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n));
     var xPos = 80;
@@ -657,6 +681,7 @@
     st.zone = Z.APPS;
     st.grid = 0;
     setClass($('apps'), 'open', true);
+    fitLogos($('apps'));
     updateFocus();
   }
 
@@ -665,6 +690,9 @@
     setClass($('settings'), 'open', false);
     setClass($('shelfedit'), 'open', false);
     setClass($('langpick'), 'open', false);
+    setClass($('about'), 'open', false);
+    closeCityField();
+    setClass($('citypick'), 'open', false);
     langHint = null;
     st.zone = Z.SHELF;
     updateFocus();
@@ -682,8 +710,12 @@
         step: function (d) { cycle('temperature', ['auto', 'C', 'F'], unit, d); renderPanels(); }},
       {label: tr('Theme'), value: theme === 'light' ? tr('Light') : theme === 'dark' ? tr('Dark') : auto,
         step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
+      {label: tr('Watch from the screensaver'), toggle: Prefs.saverWatch(),
+        step: function () { Prefs.set('saverWatch', !Prefs.saverWatch()); }},
       {label: tr('Weather widget'), toggle: Prefs.weather(),
         step: function () { Prefs.set('weather', !Prefs.weather()); renderPanels(); }},
+      {label: tr('City'), value: Prefs.city() || '—', opens: true, city: true,
+        step: function (d) { if (d >= 0) openCities(); }},
       {label: tr('Forecast'), value: Prefs.forecast() === 'days' ? tr('Next days') : tr('Next hours'),
         step: function (d) { cycle('forecast', ['hours', 'days'], Prefs.forecast(), d); renderPanels(); }},
       {label: tr('Quotes widget'), toggle: Prefs.quotes(),
@@ -697,8 +729,9 @@
           step: function () { if (Prefs.quotes()) { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); } }});
       })(i);
     }
-    rows.push({label: tr('Shelf'), value: '›', step: function (d) { if (d >= 0) openShelfEdit(); }});
-    rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
+    rows.push({label: tr('Shelf'), value: '›', shelf: true, step: function (d) { if (d >= 0) openShelfEdit(); }});
+    rows.push({label: tr('About this TV'), value: '›', about: true, step: function (d) { if (d >= 0) openAbout(); }});
+    if (TV.canOpenSettings) rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
     return rows;
   }
 
@@ -791,6 +824,159 @@
     }
     openSettings();
     for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].language) st.row = i;
+    updateFocus();
+  }
+
+  // MARK: - City: typed with the TV's keyboard, found by Open-Meteo, as on Android (the weather is for its coordinates)
+
+  var cityFound = [], cityStatus = '', cityTimer = 0, citySeq = 0;
+
+  /** The field to type in, the Search row, then the places found. */
+  function cityRows() { return 2 + cityFound.length; }
+
+  function cityField() { return $('citypick').querySelector('input'); }
+
+  function renderCities() {
+    var box = $('citypick').firstChild, old = cityField(), typed = old ? old.value : '', inField = old && document.activeElement === old;
+    box.innerHTML = '';
+    el('div', 'title', box, tr('City'));
+    var list = el('div', 'list', box), holder = el('div', 'rows', list);
+    list.style.height = Math.min(cityRows(), 7) * 78 + 'px';
+    var field = el('input', '', el('div', 'row field', holder));
+    field.type = 'text';
+    field.value = typed;
+    field.placeholder = tr("Type the city's name");
+    field.setAttribute('aria-label', tr('City'));
+    field.setAttribute('autocomplete', 'off');
+    field.setAttribute('spellcheck', 'false');
+    hover(field.parentNode, Z.CITY, 0);
+    var search = el('div', 'row', holder, tr('Search'));
+    sym('chevron_right', el('span', 'value', search));
+    hover(search, Z.CITY, 1);
+    for (var i = 0; i < cityFound.length; i++) {
+      var row = el('div', 'row', holder, cityFound[i].label);
+      hover(row, Z.CITY, 2 + i);
+    }
+    el('div', 'hint', box, cityStatus || tr('OK picks, Back cancels.'));
+    if (inField) openCityField();   // a message that went away while typing: the keyboard stays
+    updateFocus();
+  }
+
+  function openCities() {
+    setClass($('settings'), 'open', false);
+    st.zone = Z.CITY;
+    st.city = 0;
+    cityFound = [];
+    cityStatus = '';
+    $('citypick').firstChild.innerHTML = '';
+    renderCities();
+    setClass($('citypick'), 'open', true);
+    openCityField();
+  }
+
+  /** Into the field: the TV shows its keyboard. */
+  function openCityField() {
+    var f = cityField();
+    if (!f) return;
+    f.focus();
+    try { f.setSelectionRange(f.value.length, f.value.length); } catch (e) {}
+  }
+
+  function closeCityField() {
+    var f = cityField();
+    if (f && document.activeElement === f) f.blur();
+  }
+
+  function setCityStatus(text) {
+    cityStatus = text;
+    clearTimeout(cityTimer);
+    // Clears only the hint: a new render would rebuild the field and interrupt the TV's keyboard while someone types.
+    if (text && text !== tr('Searching…')) cityTimer = setTimeout(function () {
+      cityStatus = '';
+      var hint = st.zone === Z.CITY && $('citypick').querySelector('.hint');
+      if (hint) hint.textContent = tr('OK picks, Back cancels.');
+    }, 4000);
+    if (st.zone === Z.CITY) renderCities();
+  }
+
+  function searchCity() {
+    var f = cityField(), name = f ? f.value : '';
+    closeCityField();
+    if (!name.trim()) { st.city = 0; openCityField(); updateFocus(); return; }
+    if (cityStatus === tr('Searching…')) return;
+    setCityStatus(tr('Searching…'));
+    var mine = ++citySeq;   // an answer for a sheet already closed (and opened again) is dropped
+    Data.findCity(name, function (err, found) {
+      if (mine !== citySeq) return;
+      if (st.zone !== Z.CITY) { cityStatus = ''; return; }
+      cityFound = found || [];
+      if (cityFound.length) st.city = 2;   // on the first place found
+      setCityStatus(err ? trf("Couldn't search now: {error}", {error: err.message}) : cityFound.length ? '' : tr('No city with that name.'));
+    });
+  }
+
+  /** OK on a place: the weather moves there. Back (pick false): nothing changes. Either way, back on the City row. */
+  function closeCities(pick) {
+    var place = pick && cityFound[st.city - 2];
+    closeCityField();
+    setClass($('citypick'), 'open', false);
+    cityFound = [];
+    citySeq++;
+    clearTimeout(cityTimer);
+    cityStatus = '';
+    if (place) {
+      Prefs.setCity(place.city, place.lat, place.lon);
+      Data.cityChanged();
+    }
+    openSettings();
+    for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].city) st.row = i;
+    updateFocus();
+  }
+
+  function activateCity() {
+    if (st.city === 0) openCityField();
+    else if (st.city === 1) searchCity();
+    else closeCities(true);
+  }
+
+  // MARK: - About this TV: what to quote when reporting a problem, without LG's or Samsung's slow menus
+
+  function renderAbout(info) {
+    var box = $('about').firstChild;
+    box.innerHTML = '';
+    el('div', 'title', box, tr('About this TV'));
+    var list = el('div', 'list', box), holder = el('div', 'rows', list);
+    var rows = [
+      [tr('Model'), info && info.model], [tr('Firmware'), info && info.firmware], [tr('System'), info && info.system],
+      [tr('IP address'), info && info.ip], [tr('Time zone'), TV.zone()], ['Free My TV', info && info.version]
+    ];
+    for (var i = 0; i < rows.length; i++) {
+      var row = el('div', 'row', holder), label = el('span', '', row, rows[i][0]);
+      fitValue(row, label, el('span', 'value', row, info ? rows[i][1] || tr('Unavailable') : '…'));
+    }
+    el('div', 'hint', box, tr('Back closes.'));
+  }
+
+  /** A long value (Samsung's firmware) gets smaller instead of running over its label, and ends in "…" if even the smallest size is too wide. */
+  function fitValue(row, label, value) {
+    var room = row.clientWidth - label.offsetWidth - 2 * 24 - 24;   // the row's padding, and a gap after the label
+    for (var size = 30; value.offsetWidth > room && size > 18; size -= 2) value.style.fontSize = size - 2 + 'px';
+    if (value.offsetWidth > room) { value.style.maxWidth = room + 'px'; setClass(value, 'cut', true); }
+  }
+
+  function openAbout() {
+    setClass($('settings'), 'open', false);
+    st.zone = Z.ABOUT;
+    renderAbout(null);
+    setClass($('about'), 'open', true);
+    updateFocus();
+    TV.about(function (info) { if (st.zone === Z.ABOUT) renderAbout(info); });
+  }
+
+  function closeAbout() {
+    setClass($('about'), 'open', false);
+    openSettings();
+    for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].about) st.row = i;
     updateFocus();
   }
 
@@ -904,6 +1090,12 @@
       case Z.LANG:
         closeLanguages(true);
         return;
+      case Z.CITY:
+        activateCity();
+        return;
+      case Z.ABOUT:
+        closeAbout();
+        return;
     }
   }
 
@@ -960,13 +1152,24 @@
       case Z.LANG:
         if (dy) st.lang = Math.max(0, Math.min(languageChoices().length - 1, st.lang + dy));
         break;
+      case Z.CITY:
+        if (dy) st.city = Math.max(0, Math.min(cityRows() - 1, st.city + dy));
+        break;
     }
     updateFocus();
   }
 
   function back() {
-    if (st.zone === Z.EDIT) { setClass($('shelfedit'), 'open', false); openSettings(); st.row = rowsNow.length - 2; updateFocus(); return; }
+    if (st.zone === Z.EDIT) {
+      setClass($('shelfedit'), 'open', false);
+      openSettings();
+      for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].shelf) st.row = i;   // back on the Shelf row, whatever follows it
+      updateFocus();
+      return;
+    }
     if (st.zone === Z.LANG) { closeLanguages(false); return; }
+    if (st.zone === Z.CITY) { closeCities(false); return; }
+    if (st.zone === Z.ABOUT) { closeAbout(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
@@ -976,7 +1179,7 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG))) return;
+      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.ABOUT))) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
@@ -989,6 +1192,7 @@
       else if (zone === Z.SETTINGS) st.row = index;
       else if (zone === Z.EDIT) st.edit = index;
       else if (zone === Z.LANG) st.lang = index;
+      else if (zone === Z.CITY) st.city = index;
       updateFocus();
     };
     node.onclick = function () { node.onmouseover(); activate(); };
@@ -1018,7 +1222,7 @@
     try { localStorage.setItem('fmtv.night', night ? 'true' : 'false'); } catch (e) {}   // for index.html, next start
   }
 
-  var saverOn = false, idleAt = Date.now(), saverIndex = 0, saverTimer = 0, SAVER_AFTER = 5 * 60000;
+  var saverOn = false, idleAt = Date.now(), saverIndex = 0, saverTimer = 0, saverPick = null, SAVER_AFTER = 5 * 60000;
 
   /** The screensaver's photos: picks with an app on the TV. */
   function saverPhotos() {
@@ -1028,6 +1232,7 @@
   function showSaver() {
     var photos = saverPhotos();
     saverOn = true;
+    saverPick = null;
     var s = $('saver');
     s.innerHTML = '';
     var a = el('div', 'photo', s), b = el('div', 'photo', s);
@@ -1036,6 +1241,7 @@
     el('div', 'time', clock);
     el('div', 'date', clock);
     el('div', 'title', clock);
+    var hint = el('div', 'hint', clock);
     var front = a;
     function next() {
       if (!saverOn) return;
@@ -1044,7 +1250,11 @@
       if (p) {
         back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'original') + ')';
         back.style.webkitTransform = back.style.transform = 'scale(1.0)';
-        clock.lastChild.textContent = p.title;
+        clock.children[2].textContent = p.title;
+        saverPick = p;
+        // With Watch from the screensaver on, OK opens this title's app (any other key only closes).
+        var app = Prefs.saverWatch() && Data.appFor(p.app);
+        hint.textContent = app ? trf('Press OK to watch on {app} · any other button to close', {app: app.title}) : '';
         setTimeout(function () {
           setClass(back, 'on', true);
           setClass(front, 'on', false);
@@ -1071,17 +1281,21 @@
     setClass($('saver'), 'on', false);
   }
 
-  function poke() {
+  function poke(ok) {
     idleAt = Date.now();
-    if (saverOn) { hideSaver(); return true; }
-    return false;
+    if (!saverOn) return false;
+    var app = ok && saverPick && Prefs.saverWatch() && Data.appFor(saverPick.app);
+    hideSaver();
+    if (app) launcher(app.id, app.title)();
+    return true;
   }
 
   // MARK: - Keys
 
   document.addEventListener('keydown', function (e) {
     var k = e.keyCode;
-    if (poke()) { e.preventDefault(); return; }   // the first press only wakes the screen
+    if (poke(k === TV.keys.ok)) { e.preventDefault(); return; }   // the first press only wakes the screen (or OK watches)
+    if (typing(k)) return;
     if (k === TV.keys.left) move(-1, 0);
     else if (k === TV.keys.right) move(1, 0);
     else if (k === TV.keys.up) move(0, -1);
@@ -1092,6 +1306,20 @@
     e.preventDefault();
   });
   document.addEventListener('mousemove', function () { poke(); });
+
+  /**
+   * In the city's field, the keys type (← → move in the text, Delete erases). OK or the keyboard's Done searches; Back,
+   * its Cancel or ↑ ↓ leave the field. Samsung's keyboard sends Done as 65376 and Cancel as 65385. True: handled here.
+   */
+  function typing(k) {
+    var f = cityField();
+    if (st.zone !== Z.CITY || !f || document.activeElement !== f) return false;
+    if (k === TV.keys.ok || k === 65376) searchCity();
+    else if (k === TV.keys.back || k === 27 || k === 65385) { closeCityField(); updateFocus(); }
+    else if (k === TV.keys.up || k === TV.keys.down) { closeCityField(); move(0, k === TV.keys.up ? -1 : 1); }
+    else return true;   // typed into the field
+    return true;
+  }
 
   // MARK: - Start
 
@@ -1136,6 +1364,7 @@
     st.shelf = 0;
     if (st.tab !== 0) { st.tab = 0; renderCards(); }
     updateFocus();
+    restInDrawer();   // drawer_first: out again at once, not only after the TV lists its apps
   }
 
   Data.onChange(function () {
@@ -1145,11 +1374,19 @@
     checkNight();
   });
 
+  /** drawer_first: the home screen rests with the drawer open (shelf in the middle, inputs and weather below). */
+  function restInDrawer() {
+    if (!CONFIG.drawerFirst || !drawerItems.length || st.zone !== Z.SHELF) return;
+    st.zone = Z.DRAWER;
+    st.drawer = 0;
+    updateFocus();
+  }
+
   function reopened() {
     // LG: with handlesRelaunch the app has to come to the front itself, or opening it again while it runs shows nothing.
     if (window.PalmSystem && window.PalmSystem.activate) window.PalmSystem.activate();
     reset();
-    loadApps(function () { renderShelf(); renderDrawer(); Data.refresh(); });
+    loadApps(function () { renderShelf(); renderDrawer(); restInDrawer(); Data.refresh(); });
   }
 
   window.addEventListener('resize', fit);
@@ -1170,6 +1407,7 @@
   tickClock();
   loadApps(function () {
     renderAll();
+    restInDrawer();
     Data.refresh();
   });
   setInterval(function () {

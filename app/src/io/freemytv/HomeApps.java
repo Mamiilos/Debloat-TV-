@@ -156,6 +156,13 @@ final class HomeApps {
             "com.disney.starplus",                  // Star+ (merged into Disney+)
             "com.tcl.exhibit"));                    // TCL: T-Exhibition
 
+    /**
+     * System apps with only a phone launcher entry that still belong in "All Apps". Fire TV's Appstore has no TV banner
+     * (no LEANBACK_LAUNCHER entry), so without this a Fire TV had no way to its app store from this home screen.
+     */
+    private static final Set<String> SYSTEM_SHOWN = new HashSet<>(java.util.Arrays.asList(
+            "com.amazon.venezia"));                 // Amazon Appstore
+
     private static final Map<String, Bitmap> TILES = new HashMap<>();   // key → ready card
     private static final Map<String, Bitmap> LOGOS = new HashMap<>();   // key → colored logo with no background
 
@@ -295,6 +302,11 @@ final class HomeApps {
     }
 
     /** Free My TV settings, in the corner of the home screen. */
+    /** The TV's own settings (android.settings.SETTINGS). */
+    static Item tvSettings() {
+        return shortcut(ANDROID_SETTINGS, "tv-settings", Ui.tr("TV Settings"), "tv_settings");
+    }
+
     static Item settings() {
         return shortcut(SETTINGS, "settings", Ui.tr("Settings"), "settings");
     }
@@ -307,7 +319,12 @@ final class HomeApps {
         items.add(shortcut(ANDROID_SETTINGS, "tv-settings", Ui.tr("TV Settings"), "tv_settings"));
         // HY300 projectors (Hotack, Allwinner H713): keystone and focus live in the maker's settings app, and the
         // stock home screen was the only way to its Miracast receiver. Each shows only where the TV has it.
-        device(c, items, "keystone", Ui.tr("Keystone"), "keystone", new Intent("action.htcsettings.prjsettings"));
+        // The Amlogic ones (txhd2) carry the HTC app too, but its keystone crashes there (SurfaceFlinger refuses code
+        // 1050): their own is com.softwinner.tcorrection, so that one wins where it's installed.
+        Intent tcorrection = new Intent().setComponent(new ComponentName("com.softwinner.tcorrection",
+                "com.softwinner.tcorrection.projection.ProjectionSettingActivity"));
+        device(c, items, "keystone", Ui.tr("Keystone"), "keystone",
+                c.getPackageManager().resolveActivity(tcorrection, 0) != null ? tcorrection : new Intent("action.htcsettings.prjsettings"));
         device(c, items, "mirroring", Ui.tr("Screen Mirroring"), "cast",
                 new Intent().setComponent(new ComponentName("com.softwinner.miracastReceiver", "com.softwinner.miracastReceiver.Miracast")));
         return items;
@@ -525,6 +542,11 @@ final class HomeApps {
 
     /** Opens the item with the system zoom transition growing out of the card (the app starts opening right away). */
     static boolean open(Activity a, Item it, View from, int x, int y, int w, int h) {
+        return open(a, it, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
+    }
+
+    /** Opens the item; `options` for the transition, or null (the screensaver has no card to grow out of). */
+    static boolean open(Context a, Item it, android.os.Bundle options) {
         Intent intent, plain = null;   // plain: the app's own home, when it won't take the title's address
         switch (it.kind) {
             case APP:
@@ -539,6 +561,7 @@ final class HomeApps {
                 intent = liveTv(a);
                 break;
             case INPUT:
+                if (HomeMode.AMAZON && fireInput(a, it)) return true;
                 intent = inputIntent(a, it);
                 break;
             case SETTINGS:
@@ -557,7 +580,7 @@ final class HomeApps {
         if (intent == null) return false;
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
-            a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
+            a.startActivity(intent, options);
             if (it.kind == APP) Recent.note(a, it.pkg);
             return true;
         } catch (ActivityNotFoundException | SecurityException e) {
@@ -575,11 +598,43 @@ final class HomeApps {
     }
 
     /**
+     * Fire TV (a TV with Fire OS built in): an HDMI input through Amazon's own input switch, as its home screen does.
+     * The standard request goes to Vewd's HbbTV player or to Amazon's Live TV, which both play the antenna's last
+     * channel (an app's, like RaiPlay's) instead, and Amazon's input player wants a permission only Amazon's apps have.
+     * The switch takes the port's hardware number: HW2 is HDMI 1. Tested on a Xiaomi Fire TV (MediaTek, Fire OS 8).
+     */
+    private static final Pattern HW = Pattern.compile("/HW(\\d+)$");
+
+    private static boolean fireInput(Context c, Item it) {
+        Matcher m = HW.matcher(it.inputId);
+        if (!m.find()) return false;
+        Intent sw = new Intent().setComponent(new ComponentName("com.amazon.tv.inputpreference.service",
+                "com.amazon.tv.inputpreference.service.KaminoInputSwitchService"));
+        if (c.getPackageManager().resolveService(sw, 0) == null) return false;
+        try {
+            if (c.startService(sw.putExtra("inputType", Integer.parseInt(m.group(1)))) == null) return false;
+            AppLog.w("Fire TV input: HW" + m.group(1) + " for " + it.label);   // another board may number its ports differently
+            return true;
+        } catch (RuntimeException e) {
+            AppLog.w("Amazon's input switch: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Live TV: tune the antenna input directly. MediaTek TV Center otherwise restores the last source used, which can
      * be HDMI, so its explicit activity receives the tuner URI. Other TV apps keep the standard channel-list request.
      */
     static Intent liveTv(Context c) {
         PackageManager pm = c.getPackageManager();
+        // Fire TV: the antenna (digital terrestrial) entry of Amazon's Live TV, which plays the antenna's channels or
+        // opens the channel scan when there are none yet. The channels request would also offer Vewd's HbbTV player,
+        // and Live TV on its own plays the last channel, which can be an app's (RaiPlay's).
+        if (HomeMode.AMAZON) {
+            ComponentName dtt = new ComponentName("com.amazon.tv.livetv", "com.amazon.tv.livetv.DttIconWrapperActivity");
+            // exists(), not resolveActivity: that hands an explicit component back without looking (the sticks have none)
+            if (exists(c, dtt)) return new Intent().setComponent(dtt);
+        }
         // MediaTek OneWorld TV Center (KTC/NextStar) has one input per tuner mode (antenna, cable, satellite): tuning one
         // switches the TV to that mode and hides the other channel lists, so it opens as it is, on its own last channel.
         Intent oneWorld = launchIntent(pm, "com.mediatek.tv.oneworld.tvcenter");
@@ -616,7 +671,8 @@ final class HomeApps {
                 if (info.getServiceInfo() != null && info.getServiceInfo().applicationInfo != null
                         && (info.getServiceInfo().applicationInfo.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0) {
                     // Several hardware tuners (MediaTek: Tuner, Cable, Analog): digital antenna first, analog last.
-                    // Haier H32S80EFX lists AnalogInputService/HW1 first, which opens on no channels in DVB-T2 countries.
+                    // Haier H32S80EFX lists AnalogInputService/HW1 first, which opens on no channels in DVB-T2 countries;
+                    // a Cecotec lists two TunerInputService ones, HW1 (analog) first.
                     if (info.getId().contains("/HW") && (hardware == null || tunerRank(info.getId()) < tunerRank(hardware))) {
                         hardware = info.getId();
                     }
@@ -629,9 +685,18 @@ final class HomeApps {
         return hardware != null ? hardware : system != null ? system : fallback;
     }
 
+    /**
+     * Live TV's tuner: the digital antenna first, then cable, then analog, by the input's name (Haier H32S80EFX's
+     * Tuner/Cable/AnalogInputService, #254); between inputs of one name, the lowest hardware number (a Cecotec on a
+     * Vestel base: TunerInputService/HW0 is the antenna and HW1 analog, listed first, #312). "atv" only in the
+     * service's class name (Amlogic's ATVInputService), so a package with it in its name doesn't count as analog.
+     */
     private static int tunerRank(String id) {
-        String s = id.toLowerCase(Locale.ROOT);
-        return s.contains("analog") ? 2 : s.contains("cable") ? 1 : 0;
+        String s = id.toLowerCase(Locale.ROOT), cls = s.substring(Math.max(0, s.indexOf('/')));   // the service's class
+        int kind = s.contains("analog") || cls.contains(".atv") ? 2 : s.contains("cable") ? 1 : 0;
+        Matcher m = HW.matcher(id);
+        int hw = m.find() && m.group(1).length() <= 3 ? Integer.parseInt(m.group(1)) : 999;
+        return kind * 1000 + hw;
     }
 
     static List<String[]> launchable(Context c) {
@@ -646,7 +711,8 @@ final class HomeApps {
         Intent phone = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         for (ResolveInfo ri : pm.queryIntentActivities(phone, 0)) {
             String pkg = ri.activityInfo.packageName;
-            if ((ri.activityInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 || !seen.add(pkg)) continue;
+            boolean system = (ri.activityInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+            if ((system && !SYSTEM_SHOWN.contains(pkg)) || !seen.add(pkg)) continue;
             out.add(new String[] {pkg, String.valueOf(ri.loadLabel(pm))});
         }
         return out;
