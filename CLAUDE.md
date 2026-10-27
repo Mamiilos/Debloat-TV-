@@ -295,7 +295,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
 - Settings rows that need something this TV lacks stay, dimmed as *Unavailable*: `SettingsActivity.need` names what a
   row needs, `Capabilities.missing` says why it's missing (once per screen), and OK on the row shows it in a toast.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL,
-  Vestel, KTC (NextStar), Sony, Xiaomi and Hisense TVs and Formovie projectors, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
+  Vestel, KTC (NextStar), Sony, Xiaomi, Hisense and Kalley R10G TVs and Formovie projectors, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
   services. The system waits for the service on every key, so it lives alone in the `:keys` process: what it reads is
   in `remote-keys.txt` (`Prefs.keyApp`), never in SharedPreferences, and `onKeyEvent` does no heavy work.
   The service is also off while every button is *Nothing*, and always on TCL's Android 11 (`RemoteKeys.FILTER_SAFE`):
@@ -335,6 +335,15 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   opens TV Settings and All Apps opens our own sheet (`Prefs.ALL_APPS`, `HomeActivity.EXTRA_ALL_APPS`); the profile
   button has nothing to open without `launcherx`. Hisense keeps only error logs: `adb shell setprop log.tag.FreeMyTV I`
   before reading `adb logcat -s FreeMyTV`.
+  Kalley R10G (MOKA/Realtek RTD6748, Google TV 14 tested) sends `KEYCODE_BUTTON_4` for Netflix, `KEYCODE_BUTTON_3` for
+  YouTube and `KEYCODE_BUTTON_8` for Prime Video, global keys for `launcherx`; they are keyed as `Prefs.KALLEY_KEY` +
+  key code, like Sony's, since those codes are KTC's Tabii, Xiaomi's Mi and Hisense's YouTube elsewhere. `KALLEY` matches
+  the maker *and* the `R10G` model: Kalley sells TVs from several makers. Its Input (`KEYCODE_TV`/`TV_INPUT`), Settings,
+  Guide and Profile (`PROFILE_SWITCH`) buttons were answered by the disabled stock launcher; `RemoteKeys.onActionKey`
+  opens the input switcher, TV Settings, Realtek's Live TV (`com.realtek.tv`) and our settings, but only while
+  `HomeActivity` is the window in front and only when the target exists: in Live TV, Guide must still open the guide.
+  Its Apps button (`KEYCODE_BUTTON_6`, or `ACTION_ALL_APPS`) opens and closes our All Apps sheet. Test the app buttons
+  in Free My TV and again after switching to *Original*.
   `adb shell input keyevent` doesn't test any of these: injected keys skip the accessibility key filter.
 - What's playing (`NowPlaying`) comes from the apps' media sessions, which Android hands only to an allowed notification
   listener. A listener could read every notification, so ours follows Home Settings' *Now Playing widget* (off by

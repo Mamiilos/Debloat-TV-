@@ -50,6 +50,14 @@ final class Prefs {
      */
     static final int KEY_HISENSE_PRIME = 295, KEY_HISENSE_YOUTUBE = KeyEvent.KEYCODE_BUTTON_3, KEY_HISENSE_DISNEY = 607,
             KEY_HISENSE_APPS = 284, KEY_HISENSE_SETTINGS = KeyEvent.KEYCODE_NOTIFICATION, KEY_HISENSE_PROFILE = 288;
+    /**
+     * The Kalley R10G's app buttons, as KALLEY_KEY + key code (read from dumpsys window policy's mKeyMapping): BUTTON_4,
+     * BUTTON_3 and BUTTON_8 are KTC's Tabii, Xiaomi's Mi and Hisense's YouTube elsewhere, so key them as Kalley's own.
+     */
+    static final int KALLEY_KEY = 200_000;
+    static final int KEY_KALLEY_NETFLIX = KALLEY_KEY + KeyEvent.KEYCODE_BUTTON_4,
+            KEY_KALLEY_YOUTUBE = KALLEY_KEY + KeyEvent.KEYCODE_BUTTON_3,
+            KEY_KALLEY_PRIME = KALLEY_KEY + KeyEvent.KEYCODE_BUTTON_8;
     /** A button's value that opens this home screen's All Apps. */
     static final String ALL_APPS = HomeMode.PKG + "#all";
     static final int[] KEYS = RemoteKeys.HISENSE ? new int[] {KEY_HISENSE_PRIME, KEY_HISENSE_YOUTUBE, KEY_HISENSE_DISNEY,
@@ -59,6 +67,7 @@ final class Prefs {
                     KEY_SONY_PLAY}
             : RemoteKeys.STEM_NETFLIX ? new int[] {KEY_STEM_NETFLIX}
             : RemoteKeys.KTC ? new int[] {KEY_KTC_TABII}
+            : RemoteKeys.KALLEY ? new int[] {KEY_KALLEY_NETFLIX, KEY_KALLEY_YOUTUBE, KEY_KALLEY_PRIME}
             : RemoteKeys.XIAOMI ? new int[] {KEY_MI, KEY_YOUTUBE, KEY_XIAOMI_PATCHWALL, KEY_XIAOMI_OKKO, KEY_XIAOMI_VK,
                     KEY_XIAOMI_RUTUBE, KEY_XIAOMI_KION, KEY_XIAOMI_WINK, KEY_XIAOMI_IVI}
             : new int[] {KEY_NETFLIX, KEY_YOUTUBE, KEY_PRIME, KEY_TCL_CHANNEL};
@@ -312,9 +321,9 @@ final class Prefs {
             }
         }
         switch (keyCode) {
-            case KEY_NETFLIX: case KEY_STEM_NETFLIX: return "com.netflix.ninja";
-            case KEY_YOUTUBE: return "com.google.android.youtube.tv";
-            case KEY_PRIME: return "com.amazon.amazonvideo.livingroom";
+            case KEY_NETFLIX: case KEY_STEM_NETFLIX: case KEY_KALLEY_NETFLIX: return "com.netflix.ninja";
+            case KEY_YOUTUBE: case KEY_KALLEY_YOUTUBE: return "com.google.android.youtube.tv";
+            case KEY_PRIME: case KEY_KALLEY_PRIME: return "com.amazon.amazonvideo.livingroom";
             case KEY_TCL_CHANNEL: return "";
             case KEY_MI: return HomeMode.PKG;   // our home screen: the remote has no other Home button
             default: return "";
