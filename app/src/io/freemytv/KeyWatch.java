@@ -50,15 +50,28 @@ final class KeyWatch {
             if (target != null) cases.append(CODES[i]).append(") am start ").append(target).append(" >/dev/null 2>&1;; ");
         }
         if (cases.length() == 0) return;
-        String script = ": " + MARK + "; getevent -q | while read d t c v; do"
-                + " [ \"$t\" = 0001 ] && [ \"$v\" = 00000001 ] || continue; case $c in " + cases + "esac; done";
-        // setsid: its own session, so it outlives this ADB connection.
-        adb.shell("setsid sh -c '" + script + "' </dev/null >/dev/null 2>&1 &");
-        AppLog.w("key watch on");
+        // getevent again if it ever ends (a remote reconnecting); stop() ends the loop itself.
+        String script = ": " + MARK + "; while :; do getevent -q | while read d t c v; do"
+                + " [ \"$t\" = 0001 ] && [ \"$v\" = 00000001 ] || continue; case $c in " + cases + "esac; done; sleep 1; done";
+        // setsid: its own session, so it outlives this ADB connection. The command waits a moment before it ends:
+        // ADB ends what's left of it, and a script not in its own session by then would end with it.
+        String out = adb.shell("setsid sh -c '" + script + "' </dev/null >/dev/null 2>&1 & sleep 1; pgrep -f '"
+                + pattern() + "' >/dev/null && echo on");
+        AppLog.w(out.trim().equals("on") ? "key watch on" : "key watch didn't start");
     }
 
+    /**
+     * Ends the script and its getevent. The pattern doesn't match its own command line ("…c[h]" isn't "…ch"): pkill
+     * would otherwise end the shell it runs in, the command would seem done while pkill still goes through the
+     * processes, and it would end part of the script start() launches next (its key reader, leaving getevent to die
+     * at the next press).
+     */
     static void stop(Adb adb) throws IOException {
-        adb.shell("pkill -f " + MARK + "; pkill -x getevent");
+        adb.shell("pkill -f '" + pattern() + "'; pkill -x getevent");
+    }
+
+    private static String pattern() {
+        return MARK.substring(0, MARK.length() - 1) + "[" + MARK.charAt(MARK.length() - 1) + "]";
     }
 
     /** What `am start` opens for a button's app: its component, the home screen, or null for Nothing. */
