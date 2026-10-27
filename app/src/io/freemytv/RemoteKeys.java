@@ -4,8 +4,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.provider.Settings;
 import android.view.InputDevice;
 import android.view.KeyEvent;
+
+import java.util.Locale;
 
 /**
  * The remote's app buttons on TCL TVs. The stock home screen opens the apps for Netflix, YouTube and Prime (and TCL
@@ -26,6 +29,9 @@ import android.view.KeyEvent;
  * hot-key receiver (partnercustomizer's GlobalKeyReceiver).
  * On Hisense TVs, the Prime Video, YouTube, Disney+, All Apps, Settings (gear) and profile buttons go to Google TV's
  * home app, which Free My TV mode turns off: without the filter they do nothing. Netflix stays with the system.
+ * On the Kalley R10G (MOKA/Realtek) the Netflix, YouTube and Prime buttons are BUTTON_4, BUTTON_3 and BUTTON_8, global
+ * keys for Google TV's home app (launcherx). Its Input, Settings, Guide and Profile buttons are handled here too, but
+ * only while our home screen is showing: in Live TV, Guide must still open the guide.
  */
 final class RemoteKeys {
     private RemoteKeys() {}
@@ -39,6 +45,13 @@ final class RemoteKeys {
      */
     static final boolean TCL = is("TCL"), VESTEL = is("Vestel"), KTC = is("KTC"), SONY = is("Sony"), FORMOVIE = is("Formovie"),
             HISENSE = is("Hisense");
+    /**
+     * The Kalley R10G only: Kalley sells TVs from several makers, and these key codes (BUTTON_3, BUTTON_4, BUTTON_8,
+     * Guide, Profile) are other brands' buttons too (KTC's Tabii, Xiaomi's Mi, Hisense's YouTube, Sony's own).
+     */
+    static final boolean KALLEY = is("Kalley") && Build.MODEL.toUpperCase(Locale.ROOT).contains("R10G");
+    /** The window last focused, so the action keys below run only over our home screen (set by RemoteKeyService). */
+    static volatile String topWindow;
     /**
      * Xiaomi TVs (models MiTV-M…; MiTV-MSSP3, MediaTek, Android TV 9 tested). Not the Mi Box or Mi TV Stick, the slowest
      * devices we run on, whose remotes have a Home button; Formovie's Xiaomi projectors have their own remote.
@@ -58,7 +71,7 @@ final class RemoteKeys {
     private static long lastDown;
 
     static boolean supported() {
-        return TCL || STEM_NETFLIX || KTC || SONY || XIAOMI || HISENSE;
+        return TCL || STEM_NETFLIX || KTC || SONY || XIAOMI || HISENSE || KALLEY;
     }
 
     /** The key service is on only where the filter is safe, and while a button opens something (else it has no work). */
@@ -79,7 +92,22 @@ final class RemoteKeys {
         int source = e.getSource();
         if ((source & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
                 || (source & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) return false;
+        if (KALLEY && onActionKey(c, e)) return true;
+        // The R10G's Apps button (BUTTON_6, or ALL_APPS where the system hands it over): our own sheet.
+        if (KALLEY && (e.getKeyCode() == KeyEvent.KEYCODE_ALL_APPS || e.getKeyCode() == KeyEvent.KEYCODE_BUTTON_6)) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                AppLog.w("remote key " + e.getKeyCode() + " -> All Apps");
+                c.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                        .putExtra(HomeActivity.EXTRA_ALL_APPS, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            }
+            return true;
+        }
         int keyCode = e.getKeyCode() == KEY_YOUTUBE_TCL ? Prefs.KEY_YOUTUBE : e.getKeyCode();
+        // Kalley's buttons are other brands' too (BUTTON_3, BUTTON_4, BUTTON_8): key them as its own, like Sony's.
+        if (KALLEY && (keyCode == KeyEvent.KEYCODE_BUTTON_3 || keyCode == KeyEvent.KEYCODE_BUTTON_4
+                || keyCode == KeyEvent.KEYCODE_BUTTON_8)) {
+            keyCode = Prefs.KALLEY_KEY + keyCode;
+        }
         // Sony sends BUTTON_9 for five app buttons (BUTTON_4 for Netflix, BUTTON_8 for Google Play): only the scan code
         // tells them apart.
         if (SONY && (keyCode == KeyEvent.KEYCODE_BUTTON_4 || keyCode == KeyEvent.KEYCODE_BUTTON_8
@@ -114,4 +142,39 @@ final class RemoteKeys {
         Intent intent = pm.getLeanbackLaunchIntentForPackage(pkg);
         return intent != null ? intent : pm.getLaunchIntentForPackage(pkg);
     }
+
+    /** Realtek's Live TV on the R10G. */
+    private static final String LIVE_TV = "com.realtek.tv";
+
+    /**
+     * The R10G's Input, Settings, Guide and Profile buttons, which the disabled stock launcher (and its profile picker)
+     * used to answer. Only over our home screen: in Live TV, Guide must open the guide. And only when there is
+     * something to open: an unknown key goes on to the TV instead of being swallowed.
+     */
+    private static boolean onActionKey(Context c, KeyEvent e) {
+        if (!isHome()) return false;
+        Intent intent;
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_TV:
+            case KeyEvent.KEYCODE_TV_INPUT: intent = new Intent(VIEW_INPUTS); break;
+            case KeyEvent.KEYCODE_SETTINGS: intent = new Intent(Settings.ACTION_SETTINGS); break;
+            case KeyEvent.KEYCODE_GUIDE: intent = launchIntent(c.getPackageManager(), LIVE_TV); break;
+            // The Google TV profile picker lived in the stock launcher: this app's settings take its place.
+            case KeyEvent.KEYCODE_PROFILE_SWITCH: intent = new Intent(c, SettingsActivity.class); break;
+            default: return false;
+        }
+        if (intent == null || c.getPackageManager().resolveActivity(intent, 0) == null) return false;
+        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+            AppLog.w("remote action key " + e.getKeyCode() + " -> " + intent);
+            c.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        }
+        return true;
+    }
+
+    /** The window in front (RemoteKeyService's events, or HomeActivity on resume): true over our home screen. */
+    private static boolean isHome() {
+        return HomeActivity.class.getName().equals(topWindow);
+    }
+
+    private static final String VIEW_INPUTS = "com.android.tv.action.VIEW_INPUTS";
 }
