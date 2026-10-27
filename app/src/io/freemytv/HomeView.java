@@ -179,6 +179,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int shelfIndex;
     /** The first app the shelf shows: with more apps than fit, it scrolls with the focus. */
     private int shelfFirst;
+    private int recentVersion;   // Recent.version when the shelf was last put in "Last opened first" order
     private final int shelfVisible;
 
     // Moving apps on the shelf (as on Apple TV): hold OK on a tile, then ← → move it, OK drops it, Back cancels. The
@@ -452,6 +453,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.postDelayed(tick, 15_000);
         playing.start();
         checkNotices();
+        if (Prefs.shelfRecent()) reorderRecent();
         if (!again) reload();
         updatePalette();
         updatePicks();
@@ -1203,6 +1205,24 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     // MARK: - Quotes and shelf
+
+    /** "Last opened first": the app just left comes first, focused, before the screen shows (no file or package reads). */
+    private void reorderRecent() {
+        int v = Recent.version;
+        if (v == recentVersion) return;
+        recentVersion = v;
+        showRecent(Recent.orderKnown(shelf));
+    }
+
+    /** The shelf in this order, focused on its first app (nothing changes when it's already so). */
+    private void showRecent(List<HomeApps.Item> ordered) {
+        boolean same = true;
+        for (int i = 0; same && i < ordered.size(); i++) same = ordered.get(i) == shelf.get(i);
+        if (same) return;
+        shelfIndex = 0;
+        shelfFirst = 0;
+        setShelf(ordered);
+    }
 
     private void setShelf(List<HomeApps.Item> list) {
         wake();
@@ -2208,8 +2228,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             appsGeneration = Ui.generation;
             appsAt = up;
         }
+        // Without a full reload, "Last opened first" still reads the list again: an app opened from the screensaver in
+        // another process (Android 11 to 12L) changed only the file.
+        final List<HomeApps.Item> from = !apps && Prefs.shelfRecent() ? shelf : null;
         LOADER.execute(() -> {
             final List<HomeApps.Item> s = apps ? HomeApps.shelf(c, true) : null;
+            final List<HomeApps.Item> recent = from != null ? Recent.order(c, from) : null;
             final List<HomeApps.Item> st = statusList(c);
             final List<HomeApps.Item> d = drawerList(c);
             final List<HomeApps.Item> o = apps ? HomeApps.others(c) : null;
@@ -2217,6 +2241,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             handler.post(() -> {
                 if (top != null) setLightButtons(top);
                 if (s != null) setShelf(s);
+                else if (recent != null && shelf == from) showRecent(recent);
                 setStatusItems(st);
                 setDrawerItems(d);
                 if (o != null && !sheetOpen) setOthers(o);
@@ -2572,7 +2597,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - Moving apps on the shelf
 
     private boolean canReorder() {
-        if (sheetOpen || zone != Z_SHELF || shelfIndex >= shelf.size() || shelf.size() < 2) return false;
+        // "Last opened first" places the apps itself
+        if (sheetOpen || zone != Z_SHELF || shelfIndex >= shelf.size() || shelf.size() < 2 || Prefs.shelfRecent()) return false;
         HomeApps.Item it = shelf.get(shelfIndex);
         return it.kind == HomeApps.APP && it.pkg != null;
     }
