@@ -711,6 +711,7 @@ public class SettingsActivity extends Activity {
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
                     if (down && screen == SHELF_EDIT) {
                         moveShelfApp(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+                        spoken.focusMoved();   // TalkBack reads the new value or place
                     } else if (down && (screen == HOME_SETTINGS || screen == REMOTE_KEYS || screen == POWER || screen == PICKS || screen == PICK_FROM)) {
                         adjust(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                     }
@@ -1562,6 +1563,13 @@ public class SettingsActivity extends Activity {
             return !editingTop && Prefs.shelfRecent();
         }
 
+        /** "My order" deletes the list of apps opened: nothing is kept while the shelf doesn't use it. */
+        private void switchShelfOrder() {
+            boolean on = !Prefs.shelfRecent();
+            Prefs.setShelfRecent(on);
+            if (!on) Recent.clear(getContext());
+        }
+
         private String shelfOrderValue() {
             return Prefs.shelfRecent() ? Ui.tr("Last opened first") : Ui.tr("My order");
         }
@@ -1585,7 +1593,7 @@ public class SettingsActivity extends Activity {
         private void toggleShelfApp() {
             String pkg = shelfRows.get(pickScroll + focus)[0];
             if (pkg.equals(ORDER_ROW)) {
-                Prefs.setShelfRecent(!Prefs.shelfRecent());
+                switchShelfOrder();
                 return;
             }
             if (shelfOrder.contains(pkg)) shelfOrder.remove(pkg);
@@ -1598,7 +1606,7 @@ public class SettingsActivity extends Activity {
         private void moveShelfApp(int dir) {
             String pkg = shelfRows.get(pickScroll + focus)[0];
             if (pkg.equals(ORDER_ROW)) {   // two values: either arrow switches
-                Prefs.setShelfRecent(!Prefs.shelfRecent());
+                switchShelfOrder();
                 return;
             }
             if (shelfOrderLocked()) return;
@@ -1844,6 +1852,7 @@ public class SettingsActivity extends Activity {
             } else if (screen == SHELF_EDIT) {
                 toggleShelfApp();
                 invalidate();
+                spoken.focusMoved();
                 return;
             } else if (screen == REMOTE_KEYS) {
                 openPicker(focus + 1);

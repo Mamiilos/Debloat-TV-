@@ -1211,7 +1211,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int v = Recent.version;
         if (v == recentVersion) return;
         recentVersion = v;
-        List<HomeApps.Item> ordered = Recent.order(getContext(), shelf);
+        showRecent(Recent.orderKnown(shelf));
+    }
+
+    /** The shelf in this order, focused on its first app (nothing changes when it's already so). */
+    private void showRecent(List<HomeApps.Item> ordered) {
         boolean same = true;
         for (int i = 0; same && i < ordered.size(); i++) same = ordered.get(i) == shelf.get(i);
         if (same) return;
@@ -2224,8 +2228,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             appsGeneration = Ui.generation;
             appsAt = up;
         }
+        // Without a full reload, "Last opened first" still reads the list again: an app opened from the screensaver in
+        // another process (Android 11 to 12L) changed only the file.
+        final List<HomeApps.Item> from = !apps && Prefs.shelfRecent() ? shelf : null;
         LOADER.execute(() -> {
             final List<HomeApps.Item> s = apps ? HomeApps.shelf(c, true) : null;
+            final List<HomeApps.Item> recent = from != null ? Recent.order(c, from) : null;
             final List<HomeApps.Item> st = statusList(c);
             final List<HomeApps.Item> d = drawerList(c);
             final List<HomeApps.Item> o = apps ? HomeApps.others(c) : null;
@@ -2233,6 +2241,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             handler.post(() -> {
                 if (top != null) setLightButtons(top);
                 if (s != null) setShelf(s);
+                else if (recent != null && shelf == from) showRecent(recent);
                 setStatusItems(st);
                 setDrawerItems(d);
                 if (o != null && !sheetOpen) setOthers(o);

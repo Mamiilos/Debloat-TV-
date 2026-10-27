@@ -9,17 +9,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * When each app was last opened from Free My TV (the shelf, All Apps, the picks, the screensaver), for the shelf's
- * "Last opened first" order (Prefs.shelfRecent). Apps opened some other way (the TV's own buttons, another app) aren't
- * seen: that would need an accessibility service, which only some TVs run. Kept in memory in the home screen's process
- * and saved to a small file ("package<TAB>time" a line), replaced whole on each save so a crash never leaves half of it.
+ * The apps last opened from Free My TV (the shelf, All Apps, the picks, the screensaver), newest first, for the shelf's
+ * "Last opened first" order (Prefs.shelfRecent). Noted only while that's on, and deleted when it goes off. Apps opened
+ * some other way (the TV's own buttons, another app) aren't seen: that would need an accessibility service, which only
+ * some TVs run. No times: a TV whose clock starts wrong after a power cut can't misorder it. A small file (a package a
+ * line), replaced whole on each save so a crash never leaves half of it, and read again when another process changed it
+ * (on Android 11 to 12L the screensaver runs in the main process).
  */
 final class Recent {
     private Recent() {}
@@ -27,81 +27,113 @@ final class Recent {
     private static final String FILE = "recent-apps";
     private static final int MAX = 40;
     private static final ExecutorService WRITER = Executors.newSingleThreadExecutor();
-    private static Map<String, Long> opened;   // package → when (System.currentTimeMillis); read from the file once
-    /** Goes up with every app opened: the home screen orders its shelf again only when it changed. */
+    // As last read or written, under the lock; `known` is the same for the UI thread, which never waits on the file.
+    private static List<String> keys;
+    private static long stamp, size;   // the file's lastModified() and length() then
+    private static volatile List<String> known;
+    /** Goes up whenever the list changes: the home screen orders its shelf again only then. */
     static volatile int version;
 
-    /** The app was just opened (saved in the background). */
+    /** The app was just opened (saved in the background, only while the shelf follows it). */
     static void note(Context c, String pkg) {
-        if (pkg == null || pkg.isEmpty()) return;
+        if (pkg == null || pkg.isEmpty() || !Prefs.shelfRecent()) return;
         final Context app = c.getApplicationContext();
-        final long now = System.currentTimeMillis();
         WRITER.execute(() -> {
-            String text;
             synchronized (Recent.class) {
-                opened = null;   // read again: the screensaver can open an app from another process
-                Map<String, Long> map = load(app);
-                map.put(pkg, now);
-                List<Map.Entry<String, Long>> newest = newestFirst(map);
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < newest.size(); i++) {
-                    if (i >= MAX) map.remove(newest.get(i).getKey());
-                    else sb.append(newest.get(i).getKey()).append('\t').append(newest.get(i).getValue()).append('\n');
-                }
-                text = sb.toString();
-                version++;
+                fresh(app);
+                if (!keys.isEmpty() && keys.get(0).equals(pkg)) return;
+                keys.remove(pkg);
+                keys.add(0, pkg);
+                while (keys.size() > MAX) keys.remove(keys.size() - 1);
+                save(app);
+                changed();
             }
-            File dir = app.getFilesDir(), tmp = new File(dir, FILE + ".tmp");
-            try (FileOutputStream out = new FileOutputStream(tmp)) {
-                out.write(text.getBytes(StandardCharsets.UTF_8));
-            } catch (IOException e) {
-                tmp.delete();
-                return;
-            }
-            if (!tmp.renameTo(new File(dir, FILE))) tmp.delete();
         });
     }
 
-    /** The items opened before first, the most recent first; the others after them, in their own order. */
+    /** "My order" again: nothing is kept. */
+    static void clear(Context c) {
+        final Context app = c.getApplicationContext();
+        WRITER.execute(() -> {
+            synchronized (Recent.class) {
+                File f = new File(app.getFilesDir(), FILE);
+                f.delete();
+                keys = new ArrayList<>();
+                stamp = f.lastModified();
+                size = f.length();
+                changed();
+            }
+        });
+    }
+
+    /** Off the UI thread: the items opened before first, the newest first, the others after them in their own order. */
     static List<HomeApps.Item> order(Context c, List<HomeApps.Item> items) {
-        final Map<String, Long> when;
+        List<String> k;
         synchronized (Recent.class) {
-            when = new HashMap<>(load(c));
+            fresh(c);
+            k = known;
         }
+        return sorted(k, items);
+    }
+
+    /** The same on the UI thread, with the list as last read (no file access; as they are until it's been read). */
+    static List<HomeApps.Item> orderKnown(List<HomeApps.Item> items) {
+        List<String> k = known;
+        return k == null ? items : sorted(k, items);
+    }
+
+    private static List<HomeApps.Item> sorted(List<String> k, List<HomeApps.Item> items) {
         List<HomeApps.Item> out = new ArrayList<>(items);
-        Collections.sort(out, (a, b) -> Long.compare(at(when, b), at(when, a)));   // stable: the rest keep their order
+        Collections.sort(out, (a, b) -> Integer.compare(rank(k, a), rank(k, b)));   // stable: the rest keep their order
         return out;
     }
 
-    private static long at(Map<String, Long> when, HomeApps.Item it) {
-        Long t = it.pkg == null ? null : when.get(it.pkg);
-        return t == null ? 0 : t;
+    private static int rank(List<String> k, HomeApps.Item it) {
+        int i = it.pkg == null ? -1 : k.indexOf(it.pkg);
+        return i < 0 ? Integer.MAX_VALUE : i;
     }
 
-    private static List<Map.Entry<String, Long>> newestFirst(Map<String, Long> map) {
-        List<Map.Entry<String, Long>> list = new ArrayList<>(map.entrySet());
-        Collections.sort(list, (a, b) -> Long.compare(b.getValue(), a.getValue()));
-        return list;
-    }
-
-    /** Callers hold the lock. Reads the file the first time (a missing or damaged file is an empty list). */
-    private static Map<String, Long> load(Context c) {
-        if (opened != null) return opened;
-        opened = new HashMap<>();
-        try {
-            String s = new String(Files.readAllBytes(new File(c.getFilesDir(), FILE).toPath()), StandardCharsets.UTF_8);
-            for (String line : s.split("\n")) {
-                int tab = line.indexOf('\t');
-                if (tab <= 0) continue;
-                try {
-                    opened.put(line.substring(0, tab), Long.parseLong(line.substring(tab + 1).trim()));
-                } catch (NumberFormatException ignored) {
-                    // a damaged line: skip it
-                }
+    /** Lock held. Reads the file if it changed since (a missing or damaged one is an empty list). */
+    private static void fresh(Context c) {
+        File f = new File(c.getFilesDir(), FILE);
+        long m = f.lastModified(), n = f.length();
+        if (keys != null && m == stamp && n == size) return;
+        List<String> read = new ArrayList<>();
+        if (m != 0) {
+            try {
+                String s = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+                for (String line : s.split("\n")) if (!line.isEmpty() && !read.contains(line)) read.add(line);
+            } catch (IOException | RuntimeException e) {
+                // unreadable: start again
             }
-        } catch (IOException | RuntimeException e) {
-            // never saved yet
         }
-        return opened;
+        stamp = m;
+        size = n;
+        boolean first = keys == null;
+        if (!first && read.equals(keys)) return;
+        keys = read;
+        if (first) known = Collections.unmodifiableList(new ArrayList<>(read)); else changed();
+    }
+
+    /** Lock held. */
+    private static void save(Context c) {
+        StringBuilder sb = new StringBuilder();
+        for (String k : keys) sb.append(k).append('\n');
+        File dir = c.getFilesDir(), f = new File(dir, FILE), tmp = new File(dir, FILE + ".tmp");
+        try (FileOutputStream out = new FileOutputStream(tmp)) {
+            out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            tmp.delete();
+            return;
+        }
+        if (!tmp.renameTo(f)) tmp.delete();
+        stamp = f.lastModified();
+        size = f.length();
+    }
+
+    /** Lock held. */
+    private static void changed() {
+        known = Collections.unmodifiableList(new ArrayList<>(keys));
+        version++;
     }
 }
