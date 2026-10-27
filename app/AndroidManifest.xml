@@ -64,6 +64,7 @@
         <package android:name="com.sony.dtv.tvx" />
         <package android:name="com.smartdevice.livetv" />
         <package android:name="com.mediatek.tv.oneworld.tvcenter" />
+        <package android:name="com.mitv.livetv" />
         <!-- HY300 projectors: keystone and Miracast (drawer shortcuts), Allwinner's player for HDMI; MIUI TV's source player -->
         <package android:name="com.htc.htcsettings" />
         <package android:name="com.softwinner.tcorrection" />
