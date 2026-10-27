@@ -33,6 +33,11 @@ final class KeyWatch {
     private static final String[] CODES = {"00f2", "00f5", "02f0", "00e3", "024a", "02fa"};
     private static final int[] KEYS = {Prefs.KEY_NETFLIX, Prefs.KEY_YOUTUBE, Prefs.KEY_PRIME, Prefs.KEY_TCL_CHANNEL,
             Prefs.KEY_TCL_GLOBOPLAY, Prefs.KEY_TCL_DISNEY};
+    /**
+     * The gear (TCL_SET, keycode 4077, which our window's KEYCODE_SETTINGS case never sees): TV Settings, as the stock
+     * home screen opened them. Always that, not a Remote Buttons choice.
+     */
+    private static final String GEAR = "00e9) am start -a android.settings.SETTINGS >/dev/null 2>&1;; ";
 
     /** The buttons the script answers (our window sees some of them too, and leaves them to it). */
     static boolean watches(int keyCode) {
@@ -41,15 +46,14 @@ final class KeyWatch {
         return false;
     }
 
-    /** (Re)starts the script with each button's current app; with every one on Nothing, there's none. */
+    /** (Re)starts the script with each button's current app (and the gear's TV Settings). */
     static void start(Context c, Adb adb) throws IOException {
         stop(adb);
-        StringBuilder cases = new StringBuilder();
+        StringBuilder cases = new StringBuilder(GEAR);
         for (int i = 0; i < KEYS.length; i++) {
             String target = target(c, Prefs.keyApp(KEYS[i]));
             if (target != null) cases.append(CODES[i]).append(") am start ").append(target).append(" >/dev/null 2>&1;; ");
         }
-        if (cases.length() == 0) return;
         // getevent again if it ever ends (a remote reconnecting); stop() ends the loop itself.
         String script = ": " + MARK + "; while :; do getevent -q | while read d t c v; do"
                 + " [ \"$t\" = 0001 ] && [ \"$v\" = 00000001 ] || continue; case $c in " + cases + "esac; done; sleep 1; done";
