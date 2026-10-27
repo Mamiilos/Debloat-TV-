@@ -9,7 +9,7 @@ import java.io.IOException;
 import java.util.regex.Pattern;
 
 /**
- * The remote's Netflix, YouTube and Prime buttons inside other apps on TCL's Android 11, where the key service stays
+ * The remote's app buttons inside other apps on TCL's Android 11, where the key service stays
  * off (#325: with a key filter on, the TV acts on a volume key twice). A small script in the TV's shell reads the
  * remote with getevent, which only watches the keys and never holds them back, so the volume and every other key go on
  * as always, and opens the app each button is set to with `am start`. It runs on its own in the shell (TCL freezes
@@ -26,9 +26,13 @@ final class KeyWatch {
     private static final Pattern COMPONENT = Pattern.compile("[\\w.]+/[\\w.$]+");
     private static final String HOME = "-a android.intent.action.MAIN -c android.intent.category.HOME";
 
-    /** TCL's Linux key codes for its app buttons (Generic.kl: TCL_NETFLIX, TCL_YOUTUBE, TCL_PRIMEVIDEO), as getevent prints them. */
-    private static final String[] CODES = {"00f2", "00f5", "02f0"};
-    private static final int[] KEYS = {Prefs.KEY_NETFLIX, Prefs.KEY_YOUTUBE, Prefs.KEY_PRIME};
+    /**
+     * TCL's Linux key codes for its app buttons, as getevent prints them (Generic.kl: TCL_NETFLIX, TCL_YOUTUBE,
+     * TCL_PRIMEVIDEO, TCL_QUICK_MENU for TCL Channel, TCL_GLOBO_PLAY, TCL_DISNEY).
+     */
+    private static final String[] CODES = {"00f2", "00f5", "02f0", "00e3", "024a", "02fa"};
+    private static final int[] KEYS = {Prefs.KEY_NETFLIX, Prefs.KEY_YOUTUBE, Prefs.KEY_PRIME, Prefs.KEY_TCL_CHANNEL,
+            Prefs.KEY_TCL_GLOBOPLAY, Prefs.KEY_TCL_DISNEY};
 
     /** The buttons the script answers (our window sees some of them too, and leaves them to it). */
     static boolean watches(int keyCode) {
