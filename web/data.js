@@ -690,6 +690,10 @@ var Data = (function () {
     /** The GitHub counts while in work hours ({repos, builds, reviews, pullRequests, alerts}), else null. */
     get dashboard() { return WORKER.dashboard && inWorkHours(Date.now()) ? dash : null; },
     get dashboardAt() { return dashAt; },
+    /** The GitHub details with names, for the sheet opened from the card: done(error, details). Never stored. */
+    dashboardDetails: function (done) {
+      get(WORKER.url.replace(/\/+$/, '') + '/v1/dashboard/details', {Authorization: 'Bearer ' + WORKER.token}, done);
+    },
     tideHighs: nextHighs,
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     findCity: findCity,

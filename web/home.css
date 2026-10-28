@@ -503,7 +503,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .cell.focus .face { -webkit-transform: scale(1.08); transform: scale(1.08); box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(255, 255, 255, 0.4); }
 .cell.focus .label { color: #FFF; }
 
-#settings .box, #shelfedit .box, #langpick .box, #citypick .box, #keypick .box, #about .box {
+#settings .box, #shelfedit .box, #langpick .box, #citypick .box, #keypick .box, #about .box, #github .box {
   position: absolute;
   left: 560px;
   top: 150px;
@@ -606,4 +606,13 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .lite * { box-shadow: none !important; -webkit-transition: none !important; transition: none !important; }
 /* About this TV also lists the build and each source (diagnostics): shorter rows, higher up, so all of them fit. */
 #about .box { top: 60px; }
+/* GitHub's details: wider than the other sheets (titles and repo names), 7 rows at a time like Settings. */
+#github .box { left: 310px; width: 1300px; top: 90px; }
+#github .list { height: 546px; }
+#github .row .label { display: inline-block; max-width: 760px; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+#github .row.section { font-size: 24px; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; letter-spacing: 0.06em; }
+#github .row .value.bad { color: #FF453A; }
+/* The GitHub card under focus (Down from the drawer's keys). */
+#dashboard.focus { -webkit-transform: scale(1.02); transform: scale(1.02); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9), 0 24px 60px rgba(0, 0, 0, 0.45); }
+#dashboard { -webkit-transition: -webkit-transform 0.18s; transition: transform 0.18s; }
 #about .row { height: 58px; line-height: 58px; margin-bottom: 6px; }

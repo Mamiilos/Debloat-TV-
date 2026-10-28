@@ -116,27 +116,31 @@ function fakeGitHub(overrides = {}) {
     if (overrides.down) return new Response('', { status: 502 });
     if (u.includes('/user/repos')) {
       return new Response(JSON.stringify([
-        { full_name: 'me/a', default_branch: 'main', archived: false },
-        { full_name: 'me/old', default_branch: 'main', archived: true },
-        { full_name: 'me/b', default_branch: 'trunk', archived: false },
-        { full_name: 'me/c', default_branch: 'main', archived: false },
+        { full_name: 'me/a', name: 'a', private: true, default_branch: 'main', archived: false },
+        { full_name: 'me/old', name: 'old', default_branch: 'main', archived: true },
+        { full_name: 'me/b', name: 'b', default_branch: 'trunk', archived: false },
+        { full_name: 'me/c', name: 'c', default_branch: 'main', archived: false },
       ]));
     }
     if (u.includes('/actions/runs')) {
-      const run = u.includes('me/a') ? { status: 'completed', conclusion: 'success' }
-        : u.includes('me/b') ? { status: 'completed', conclusion: 'failure' } : null;
+      const run = u.includes('me/a') ? { status: 'completed', conclusion: 'success', name: 'CI', updated_at: '2026-10-28T09:00:00Z' }
+        : u.includes('me/b') ? { status: 'completed', conclusion: 'failure', name: 'Deploy', updated_at: '2026-10-28T10:00:00Z' } : null;
       return new Response(JSON.stringify({ workflow_runs: run ? [run] : [] }));
     }
     if (u.includes('/dependabot/alerts')) {
       if (!u.includes('me/a')) return new Response('', { status: 403 });
       // Two pages: 100, then 49 (a repo past one page, as GitHub sends it).
-      if (u.includes('after=p2')) return new Response(JSON.stringify(Array(49).fill({})));
-      return new Response(JSON.stringify(Array(100).fill({})),
+      if (u.includes('after=p2')) return new Response(JSON.stringify(Array(49).fill({ security_advisory: { severity: 'high' } })));
+      return new Response(JSON.stringify([{ security_advisory: { severity: 'critical' } }, ...Array(99).fill({ security_advisory: { severity: 'medium' } })]),
         { headers: { Link: '<https://api.github.com/repos/me/a/dependabot/alerts?state=open&per_page=100&after=p2>; rel="next"' } });
     }
     if (u.includes('/search/issues')) {
       const q = decodeURIComponent(u.split('q=')[1]);
-      return new Response(JSON.stringify({ total_count: q.includes('review-requested') ? 3 : q.includes('status:failure') ? 1 : 2 }));
+      const item = (repo, number, title) => ({ repository_url: 'https://api.github.com/repos/me/' + repo, number, title,
+        html_url: `https://github.com/me/${repo}/pull/${number}` });
+      if (q.includes('review-requested')) return new Response(JSON.stringify({ total_count: 3, items: [item('a', 7, 'Fix login')] }));
+      if (q.includes('status:failure')) return new Response(JSON.stringify({ total_count: 1, items: [item('b', 9, 'Bump deps')] }));
+      return new Response(JSON.stringify({ total_count: 2, items: [item('b', 9, 'Bump deps'), item('a', 8, 'Docs')] }));
     }
     return new Response('', { status: 404 });
   };
@@ -156,7 +160,7 @@ test('dashboard: counts across recent unarchived repos, no names, cached 3 min',
   assert.equal(d.alerts, 149);                                          // both pages; me/b's 403 counts as none
   assert.equal(d.reviews, 3);
   assert.deepEqual(d.pullRequests, { open: 2, failing: 1 });
-  assert.doesNotMatch(text, /me\/|"a"|old/);
+  assert.doesNotMatch(text, /me\/|"a"|old|Fix login|Bump|Docs|CI|Deploy/);
   assert.ok(calls.some((u) => u.includes('me/b/actions/runs') && u.includes('branch=trunk')));
   assert.ok(!calls.some((u) => u.includes('me/old')));
   const n = calls.length;
@@ -169,12 +173,28 @@ test('dashboard: without GITHUB_TOKEN 503; GitHub down serves the last counts, s
   env.GITHUB_TOKEN = 'gh-token';
   fakeGitHub();
   await authed('/v1/dashboard');
-  for (const [k, v] of env.CACHE.m) if (k === 'dashboard') env.CACHE.m.set(k, JSON.stringify({ ...JSON.parse(v), fetchedAt: 1 }));
+  for (const [k, v] of env.CACHE.m) if (k === 'github') env.CACHE.m.set(k, JSON.stringify({ ...JSON.parse(v), fetchedAt: 1 }));
   fakeGitHub({ down: true });
   const d = await (await authed('/v1/dashboard')).json();
   assert.equal(d.stale, true);
   assert.match(d.error, /HTTP 502/);
   assert.equal(d.reviews, 3);
   assert.equal(d.alerts, 149);
-  assert.match((await (await get('/health')).json()).sources.dashboard.error, /HTTP 502/);
+  assert.match((await (await get('/health')).json()).sources.github.error, /HTTP 502/);
+});
+
+test('details: names, builds, PRs with their checks, alerts by severity; one GitHub fetch for both endpoints', async () => {
+  env.GITHUB_TOKEN = 'gh-token';
+  env.GITHUB_RECENT = '3';
+  const calls = fakeGitHub();
+  const d = await (await authed('/v1/dashboard/details')).json();
+  assert.deepEqual(d.repos.map((r) => [r.name, r.build.state]), [['a', 'passing'], ['b', 'failing'], ['c', 'none']]);
+  assert.deepEqual(d.repos[0].alerts, { critical: 1, high: 49, medium: 99, low: 0 });
+  assert.equal(d.repos[1].build.workflow, 'Deploy');
+  assert.deepEqual(d.reviews, { total: 3, items: [{ repo: 'a', number: 7, title: 'Fix login', url: 'https://github.com/me/a/pull/7' }] });
+  assert.deepEqual(d.mine.items.map((p) => [p.repo, p.number, p.failing]), [['b', 9, true], ['a', 8, false]]);
+  const n = calls.length;
+  const c = await (await authed('/v1/dashboard')).json();
+  assert.equal(calls.length, n);   // the counts come from the same cached details
+  assert.equal(c.alerts, 149);
 });

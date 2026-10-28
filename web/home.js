@@ -315,11 +315,11 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about'};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', PANEL: 'panel', GITHUB: 'github'};
   var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.GITHUB; }
 
   function updateFocus() {
     var i, list;
@@ -349,7 +349,9 @@
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     focusRows($('citypick'), st.city, st.zone === Z.CITY);
     focusRows($('keypick'), st.key, st.zone === Z.KEY);
-    setClass(body, 'drawer-open', st.zone === Z.DRAWER);
+    focusRows($('github'), st.gh || 0, st.zone === Z.GITHUB);
+    if ($('dashboard')) setClass($('dashboard'), 'focus', st.zone === Z.PANEL);
+    setClass(body, 'drawer-open', st.zone === Z.DRAWER || st.zone === Z.PANEL);
   }
 
   function focusRows(sheet, index, on) {
@@ -624,6 +626,9 @@
       q.style.width = (1840 - left) + 'px';
       if (dash) renderDashboard(q, dash); else renderPrices(q, coins);
     }
+    // Redrawn on every change: keep the card's focus, or give it back to the keys when the card went (work hours ended).
+    if (st.zone === Z.PANEL && !dash) { st.zone = Z.DRAWER; updateFocus(); }
+    else if (dash) setClass($('dashboard'), 'focus', st.zone === Z.PANEL);
   }
 
   function renderWeather(card) {
@@ -748,6 +753,8 @@
     setClass($('shelfedit'), 'open', false);
     setClass($('langpick'), 'open', false);
     setClass($('about'), 'open', false);
+    setClass($('github'), 'open', false);
+    $('github').firstChild.innerHTML = '';
     closeField('citypick');
     closeField('keypick');
     setClass($('citypick'), 'open', false);
@@ -1203,6 +1210,72 @@
     updateFocus();
   }
 
+  // MARK: - GitHub: the card's details, with names, only while this sheet is open (the card shows counts)
+
+  var ghRows = 0;
+
+  function renderGitHub(err, d) {
+    var box = $('github').firstChild;
+    box.innerHTML = '';
+    el('div', 'title', box, 'GitHub');
+    var list = el('div', 'list', box), holder = el('div', 'rows', list), rows = [];
+    function section(name) { rows.push({section: name}); }
+    function line(label, value, bad) { rows.push({label: label, value: value, bad: bad}); }
+    if (err) line(trf('Error: {error}.', {error: err.message}), '');
+    else if (!d) line('…', '');
+    else {
+      var states = {passing: tr('Passing'), failing: tr('Failing'), running: tr('Running'), none: tr('No builds')};
+      section(tr('Builds'));
+      for (var i = 0; i < d.repos.length; i++) {
+        var b = d.repos[i].build;
+        line(d.repos[i].name, states[b.state] + (b.workflow ? ' · ' + b.workflow : ''), b.state === 'failing');
+      }
+      section(tr('To review'));
+      for (i = 0; i < d.reviews.items.length; i++) line('#' + d.reviews.items[i].number + ' ' + d.reviews.items[i].title, d.reviews.items[i].repo);
+      if (!d.reviews.items.length) line(tr('None yet.'), '');
+      section(tr('My pull requests'));
+      for (i = 0; i < d.mine.items.length; i++) {
+        var p = d.mine.items[i];
+        line('#' + p.number + ' ' + p.title, p.repo + (p.failing ? ' · ' + tr('Failing') : ''), p.failing);
+      }
+      if (!d.mine.items.length) line(tr('None yet.'), '');
+      section(tr('Security alerts'));
+      var flagged = d.repos.filter(function (r) { var a = r.alerts; return a.critical + a.high + a.medium + a.low > 0; });
+      flagged.sort(function (x, y) { return y.alerts.critical - x.alerts.critical || y.alerts.high - x.alerts.high; });
+      for (i = 0; i < flagged.length; i++) {
+        var a = flagged[i].alerts, parts = [];
+        if (a.critical) parts.push(trf('{n} critical', {n: a.critical}));
+        if (a.high) parts.push(trf('{n} high', {n: a.high}));
+        var rest = a.medium + a.low;
+        line(flagged[i].name, parts.concat(rest ? [String(rest)] : []).join(' · '), a.critical + a.high > 0);
+      }
+      if (!flagged.length) line(tr('None yet.'), '');
+    }
+    for (var k = 0; k < rows.length; k++) {
+      var row = el('div', 'row' + (rows[k].section ? ' section' : ''), holder);
+      var label = el('span', 'label', row, rows[k].section || rows[k].label);
+      if (rows[k].value) fitValue(row, label, el('span', 'value' + (rows[k].bad ? ' bad' : ''), row, rows[k].value));
+    }
+    ghRows = rows.length;
+    el('div', 'hint', box, (d && d.stale ? trf('quotes|{ago}', {ago: Data.staleness(d.fetchedAt, 3 * 60000) || ''}) + '  ·  ' : '') + tr('Back closes.'));
+  }
+
+  function openGitHub() {
+    st.zone = Z.GITHUB;
+    st.gh = 0;
+    renderGitHub(null, null);
+    setClass($('github'), 'open', true);
+    updateFocus();
+    Data.dashboardDetails(function (err, d) { if (st.zone === Z.GITHUB) { renderGitHub(err, d); updateFocus(); } });
+  }
+
+  function closeGitHub() {
+    setClass($('github'), 'open', false);
+    $('github').firstChild.innerHTML = '';   // the names go with the sheet
+    st.zone = $('dashboard') ? Z.PANEL : Z.DRAWER;
+    updateFocus();
+  }
+
   // MARK: - Shelf editor: which apps, in what order
 
   function editList() {
@@ -1301,6 +1374,9 @@
       case Z.DRAWER:
         if (drawerItems[st.drawer]) drawerItems[st.drawer].run();
         return;
+      case Z.PANEL:
+        openGitHub();
+        return;
       case Z.APPS:
         if (others[st.grid]) launcher(others[st.grid].id, others[st.grid].title)();
         return;
@@ -1359,6 +1435,13 @@
       case Z.DRAWER:
         if (dx) st.drawer = Math.max(0, Math.min(drawerItems.length - 1, st.drawer + dx));
         else if (dy < 0) { closeDrawer(); return; }
+        else if (dy > 0 && $('dashboard')) st.zone = Z.PANEL;   // the GitHub card: OK opens its details
+        break;
+      case Z.PANEL:
+        if (dy < 0) st.zone = Z.DRAWER;
+        break;
+      case Z.GITHUB:
+        if (dy) st.gh = Math.max(0, Math.min(ghRows - 1, (st.gh || 0) + dy));
         break;
       case Z.APPS:
         var g = st.grid + dx + dy * 5;
@@ -1400,6 +1483,8 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.GITHUB) { closeGitHub(); return; }
+    if (st.zone === Z.PANEL) { st.zone = Z.DRAWER; updateFocus(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }

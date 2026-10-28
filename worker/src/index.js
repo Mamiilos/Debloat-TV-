@@ -5,11 +5,12 @@
  *
  *   GET /v1/tides       the next week of high and low water at STATIONS (UKHO's Admiralty API, asked every time)
  *   GET /v1/dashboard   counts for GitHub: the latest builds, reviews waiting, your PRs, Dependabot alerts (3 min cache)
+ *   GET /v1/dashboard/details   the same with repo names and PR titles, for the sheet the TV opens on purpose
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
  * Secrets: TV_TOKEN, UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
  * separated; empty = any), GITHUB_RECENT (how many recently pushed repos, 6).
- * The dashboard holds counts only, never repo names or titles: the TV is a shared screen.
+ * /v1/dashboard holds counts only, never repo names or titles: the TV's card is on a shared screen.
  */
 
 const DAY = 86400000;
@@ -180,38 +181,61 @@ async function githubAll(env, path) {
   return all;
 }
 
-const searchCount = async (env, q) => (await github(env, '/search/issues?per_page=1&q=' + encodeURIComponent(q))).total_count;
+const search = (env, q, n) => github(env, `/search/issues?per_page=${n}&q=` + encodeURIComponent(q));
+const repoName = (item) => item.repository_url.split('/').pop();
+const pr = (item) => ({ repo: repoName(item), number: item.number, title: item.title, url: item.html_url });
 
-/** Counts across the most recently pushed repos: never names (a repo without Actions or Dependabot counts as neither). */
-async function dashboard(env) {
+/**
+ * Your most recently pushed repos and what needs you, with names: only /v1/dashboard/details sends them (the TV shows
+ * them in a sheet opened on purpose); /v1/dashboard sends counts(). A repo without Actions or Dependabot counts as neither.
+ */
+async function details(env) {
   const n = Math.min(Math.max(parseInt(env.GITHUB_RECENT || '6', 10) || 6, 1), 20);
-  const repos = (await github(env, `/user/repos?sort=pushed&affiliation=owner&per_page=${n + 10}`))
+  const list = (await github(env, `/user/repos?sort=pushed&affiliation=owner&per_page=${n + 10}`))
     .filter((r) => !r.archived).slice(0, n);
-  const builds = { passing: 0, failing: 0, running: 0 };
-  let alerts = 0;
-  await Promise.all(repos.map(async (r) => {
+  const repos = await Promise.all(list.map(async (r) => {
     const runs = await github(env, `/repos/${r.full_name}/actions/runs?per_page=1&branch=${encodeURIComponent(r.default_branch)}`)
       .catch(() => ({ workflow_runs: [] }));
     const run = runs.workflow_runs[0];
-    if (run && run.status !== 'completed') builds.running++;
-    else if (run && ['success', 'skipped', 'neutral'].includes(run.conclusion)) builds.passing++;
-    else if (run) builds.failing++;
-    // Off, or the token can't see them: 403/404. Counted as none, not as a failure of the whole card.
+    const state = !run ? 'none' : run.status !== 'completed' ? 'running'
+      : ['success', 'skipped', 'neutral'].includes(run.conclusion) ? 'passing' : 'failing';
+    // Off, or the token can't see them: 403/404, counted as none.
     const open = await githubAll(env, `/repos/${r.full_name}/dependabot/alerts?state=open&per_page=100`).catch(() => []);
-    alerts += Array.isArray(open) ? open.length : 0;
+    const alerts = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const a of Array.isArray(open) ? open : []) {
+      const sev = ((a.security_advisory || {}).severity || (a.security_vulnerability || {}).severity || 'low').toLowerCase();
+      alerts[sev in alerts ? sev : 'low']++;
+    }
+    return { name: r.name, private: !!r.private, build: { state, workflow: run ? run.name : '', at: run ? run.updated_at : '' }, alerts };
   }));
-  const [reviews, mine, mineFailing] = await Promise.all([
-    searchCount(env, 'is:pr is:open archived:false review-requested:@me'),
-    searchCount(env, 'is:pr is:open archived:false author:@me'),
-    searchCount(env, 'is:pr is:open archived:false author:@me status:failure'),
+  const [reviews, mine, failing] = await Promise.all([
+    search(env, 'is:pr is:open archived:false review-requested:@me', 20),
+    search(env, 'is:pr is:open archived:false author:@me', 20),
+    search(env, 'is:pr is:open archived:false author:@me status:failure', 100),
   ]);
-  return { repos: repos.length, builds, reviews, pullRequests: { open: mine, failing: mineFailing }, alerts };
+  const failed = new Set(failing.items.map((i) => i.html_url));
+  return {
+    repos,
+    reviews: { total: reviews.total_count, items: reviews.items.map(pr) },
+    mine: { total: mine.total_count, failing: failing.total_count, items: mine.items.map((i) => ({ ...pr(i), failing: failed.has(i.html_url) })) },
+  };
+}
+
+/** The card's counts: never a name. */
+function counts(d) {
+  const builds = { passing: 0, failing: 0, running: 0 };
+  let alerts = 0;
+  for (const r of d.repos) {
+    if (r.build.state in builds) builds[r.build.state]++;
+    alerts += r.alerts.critical + r.alerts.high + r.alerts.medium + r.alerts.low;
+  }
+  return { repos: d.repos.length, builds, reviews: d.reviews.total, pullRequests: { open: d.mine.total, failing: d.mine.failing }, alerts };
 }
 
 async function health(env) {
   const sources = {};
   for (const s of stations(env)) sources['tides:' + s.id] = (await env.CACHE.get('health:tides:' + s.id, 'json')) || {};
-  if (env.GITHUB_TOKEN) sources.dashboard = (await env.CACHE.get('health:dashboard', 'json')) || {};
+  if (env.GITHUB_TOKEN) sources.github = (await env.CACHE.get('health:github', 'json')) || {};
   return { ok: true, now: Date.now(), sources };
 }
 
@@ -227,10 +251,11 @@ export default {
     if (!env.TV_TOKEN || !sameSecret(auth, 'Bearer ' + env.TV_TOKEN)) return json({ error: 'token' }, 401);
     try {
       if (path === '/v1/tides') return json(await tides(env));
-      if (path === '/v1/dashboard') {
+      if (path === '/v1/dashboard' || path === '/v1/dashboard/details') {
         if (!env.GITHUB_TOKEN) return json({ error: 'no GITHUB_TOKEN' }, 503);
-        const c = await cached(env, 'dashboard', DASHBOARD_FRESH, () => dashboard(env));
-        return json({ ...c.data, fetchedAt: c.fetchedAt, stale: c.stale, error: c.error });
+        const c = await cached(env, 'github', DASHBOARD_FRESH, () => details(env));
+        const data = path === '/v1/dashboard' ? counts(c.data) : c.data;
+        return json({ ...data, fetchedAt: c.fetchedAt, stale: c.stale, error: c.error });
       }
     } catch (e) {
       console.error(JSON.stringify({ path, error: String(e.message || e) }));
