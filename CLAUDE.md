@@ -311,6 +311,10 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons, Sleep Timer) wins over those first values.
 - Settings rows that need something this TV lacks stay, dimmed as *Unavailable*: `SettingsActivity.need` names what a
   row needs, `Capabilities.missing` says why it's missing (once per screen), and OK on the row shows it in a toast.
+  Settings use a static gradient and unscaled focus cards, with no blurred focus masks. Schedule frames only while
+  focus springs or a switch spinner move; unchanged state polling must not redraw. The main list has eight spacious
+  rows; Home Settings and pickers scroll nine at a time. Comparison metrics live in the Home Screen choice.
+  Playback history/Trakt controls share the dark native theme and preserve button focus when toggles rebuild the page.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL,
   Vestel, KTC (NextStar), Sony, Xiaomi and Hisense TVs and Formovie projectors, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
   services. The system waits for the service on every key, so it lives alone in the `:keys` process: what it reads is

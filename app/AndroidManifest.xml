@@ -219,7 +219,7 @@
             android:exported="false" />
 
         <activity android:name=".RecentActivity" android:process=":history" android:exported="false"
-            android:screenOrientation="landscape" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+              android:screenOrientation="landscape" android:theme="@android:style/Theme.Material.NoActionBar" />
 
         <!-- Media sessions only. History keeps its own process while opted in; the widget alone unbinds. -->
         <service

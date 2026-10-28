@@ -8,11 +8,12 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
-import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -44,8 +45,7 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Free My TV's settings (the app's icon, "All Apps", or the gear on the home screen), in the style of Apple TV's
- * settings: the big symbol and title on the left, the list on the right with the focused row in white. "Home screen"
+ * Free My TV's settings: native cards and a static background, redrawn for focus or state changes. "Home screen"
  * opens the Free My TV / Original choice (with a check on the current one); the switch runs in the main process
  * (HomeMode) and this screen only asks for it and follows the state file.
  */
@@ -151,16 +151,20 @@ public class SettingsActivity extends Activity {
     static final class SettingsView extends View implements Choreographer.FrameCallback {
         private static final int MAIN = 0, HOME_CHOICE = 1, HOME_SETTINGS = 2, REMOTE_KEYS = 3, PICKER = 4, SHELF_EDIT = 5,
                 POWER = 6, TMDB_KEY = 7, PICKS = 8, PICK_FROM = 9, WATCH_APPS = 10;
-        private static final float LIST_ROW_H = 68, LIST_ROW_GAP = 6;
+        private static final float LIST_ROW_H = 72, LIST_ROW_GAP = 10;
         private static final int PICK_VISIBLE = 9;
         private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_GAP = 8, CHOICE_H = 104;
-        // The main menu: eight rows, then the comparison, the picks (with the Watchmode credit) and two notices, all on
-        // one 1080 px screen: the rows share the 462 px that seven took.
-        private static final float MAIN_TOP = 140, ROW_H = 53.75f, MAIN_GAP = 4;
+        // Diagnostics live with the Home Screen choice, leaving full-height navigation rows here.
+        private static final float MAIN_TOP = 210, ROW_H = 80, MAIN_GAP = 14;
         private static final int AMBER = 0xFFFFC266, INK = 0xFF1C1C1E;
 
         private final SettingsActivity activity;
-        private final Scene scene = new Scene();
+        private final Paint backdrop = new Paint(Paint.DITHER_FLAG);
+        private final Paint surface = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final StaticLayout[] copyLayouts = new StaticLayout[8];
+        private final String[] copyText = new String[8];
+        private static final String[] MAIN_ICONS = {"home", "sparkles", "settings", "apps", "apps", "gamepad", "bedtime", "tv_settings"};
         private final Handler handler = new Handler(Looper.getMainLooper());
         private final Spring[] pop = new Spring[12];
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
@@ -182,6 +186,7 @@ public class SettingsActivity extends Activity {
         private String cityStatus = "";
         private JSONObject updates = new JSONObject();   // Updates' file (the main process writes it), read in poll
         private long checkAskedAt, installAskedAt;       // OK on Updates, on the wall clock as the file's "at"
+        private String displayedVersion = "";
         private String installed = "";                   // this app's version (an update starts a new process)
         // TMDB key: the page a phone opens (KeyPage), its QR code and what the screen says, all made when they change,
         // never while drawing.
@@ -199,20 +204,19 @@ public class SettingsActivity extends Activity {
         private JSONObject state = new JSONObject(), recs = new JSONObject();
         private boolean hasKey;
         private int screen = MAIN, focus;
-        private boolean running, okDown, backDown, wasBusy;
-        private StaticLayout errorLayout;   // the last error, wrapped (rebuilt only when it changes)
+        private boolean running, okDown, backDown, wasBusy, framePending;
+        private String pollStamp = "";
         private Toast whyToast;   // why the focused option is unavailable
         private String[] whyRows;  // each row's reason, worked out once per screen (null: again on the next frame)
         private int whyScreen = -1, whyScroll = -1;
         private int sleepLeft;     // the sleep timer's minutes left, read with the state, not on every frame
         private int whyState = -1;
-        private String errorShown;
         private final Spoken spoken;
-        private long startedAt, lastNanos, pendingAt, lastSky;
+        private long startedAt, lastNanos, pendingAt;
         private int w, h;
         private float k = 1;
-        private Paint title, subtitle, version, rowLabel, rowValue, rowSub, header, cellLabel, cellValue, warn, spinner, white, shadow;
-        private TextPaint notice, rowValueFit;
+        private Paint title, subtitle, version, rowLabel, rowValue, rowSub, header, cellLabel, cellValue, warn, spinner, white;
+        private TextPaint notice, rowValueFit, copy, smallCopy;
 
         private final Runnable poll = new Runnable() {
             @Override public void run() {
@@ -241,7 +245,10 @@ public class SettingsActivity extends Activity {
                     if (newest != null) announceForAccessibility(newest.optString("text"));
                 }
                 wasBusy = nowBusy;
-                invalidate();
+                String stamp = state.toString() + recs.toString() + updates.toString() + sleepLeft + whyNow
+                        + hasKey + System.currentTimeMillis() / 60_000;
+                if (!stamp.equals(pollStamp) || busy() || updating()) invalidate();
+                pollStamp = stamp;
                 handler.postDelayed(this, busy() || updating() ? 500 : 2000);
             }
         };
@@ -250,13 +257,10 @@ public class SettingsActivity extends Activity {
             super(a);
             activity = a;
             for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
-            HomeData.Weather wx = HomeData.get(a).weather;
-            Shaders.sky(scene.palette, System.currentTimeMillis(), wx.sunrise, wx.sunset);
-            scene.setMotion(0.5f, 0.2f);
-            scene.applyPalette();
             setFocusable(true);
             setContentDescription("Free My TV");
             installed = Updates.installedVersion(a);
+            displayedVersion = versionName(a);
             // TalkBack: one item per row, id = row + 1.
             spoken = new Spoken(this, new Spoken.Source() {
                 @Override public void items(List<Integer> out) { for (int i = 1; i <= rowCount(); i++) out.add(i); }
@@ -379,7 +383,7 @@ public class SettingsActivity extends Activity {
             lastNanos = 0;
             handler.post(poll);
             if (watchGrantPending) handler.postDelayed(askWatch, WATCH_GRANT_MS);
-            Choreographer.getInstance().postFrameCallback(this);
+            invalidate();
             spoken.readAgain();
             Photos.importInbox(getContext(), this::invalidate);   // photos a computer just sent
         }
@@ -390,6 +394,7 @@ public class SettingsActivity extends Activity {
             handler.removeCallbacks(poll);
             handler.removeCallbacks(askWatch);
             Choreographer.getInstance().removeFrameCallback(this);
+            framePending = false;
             if (keyPage != null) {   // the phone's page answers only while its code shows (not after Home, standby, another app)
                 stopKeyPage();
                 setKeyStatus(Ui.tr("This code has expired."), false);
@@ -398,27 +403,28 @@ public class SettingsActivity extends Activity {
         }
 
         @Override public void doFrame(long frameTimeNanos) {
+            framePending = false;
             if (!running) return;
-            boolean moving = busy();
-            for (Spring s : pop) moving |= !s.settled();
-            if (moving || SystemClock.uptimeMillis() - lastSky >= 100) invalidate();
-            Choreographer.getInstance().postFrameCallback(this);
+            invalidate();
         }
 
         @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
             w = width;
             h = height;
             k = w / 1920f;
-            scene.setSize(w, h);
-            Symbols.warm(getContext(), "sparkles", 150 * k);
+            backdrop.setShader(new LinearGradient(0, 0, w, h, 0xFF172D38, 0xFF090F1A, Shader.TileMode.CLAMP));
+            rim.setStyle(Paint.Style.STROKE);
+            rim.setStrokeWidth(1.5f * k);
+            java.util.Arrays.fill(copyLayouts, null);
+            Symbols.warm(getContext(), "sparkles", 42 * k);
             Symbols.warm(getContext(), "chevron_right", 22 * k);
             Symbols.warm(getContext(), "check", 26 * k);
-            title = Ui.text(Ui.displaySemibold, 50 * k, 0xFFFFFFFF);
-            title.setTextAlign(Paint.Align.CENTER);
-            subtitle = Ui.text(Ui.regular, 26 * k, 0x99FFFFFF);
-            subtitle.setTextAlign(Paint.Align.CENTER);
-            version = Ui.text(Ui.regular, 22 * k, 0x66FFFFFF);
-            version.setTextAlign(Paint.Align.CENTER);
+            for (String icon : MAIN_ICONS) Symbols.warm(getContext(), icon, 28 * k);
+            title = Ui.text(Ui.displaySemibold, 62 * k, 0xFFFFFFFF);
+            subtitle = Ui.text(Ui.regular, 26 * k, 0xB3FFFFFF);
+            version = Ui.text(Ui.regular, 22 * k, 0x99FFFFFF);
+            copy = new TextPaint(subtitle);
+            smallCopy = new TextPaint(version);
             rowLabel = Ui.text(Ui.medium, 30 * k, 0xF2FFFFFF);
             rowValue = Ui.text(Ui.regular, 28 * k, 0x8CFFFFFF);
             rowValue.setTextAlign(Paint.Align.RIGHT);
@@ -437,8 +443,6 @@ public class SettingsActivity extends Activity {
             spinner.setStrokeWidth(3.5f * k);
             white = new Paint(Paint.ANTI_ALIAS_FLAG);
             white.setColor(0xFFF5F5F7);
-            shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
-            shadow.setMaskFilter(new BlurMaskFilter(22 * k, BlurMaskFilter.Blur.NORMAL));
             keyHeading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             keyUrl = Ui.text(Ui.medium, 27 * k, 0xF2FFFFFF);
             qrPaint = new Paint();   // no filtering: each module stays a sharp square
@@ -482,24 +486,32 @@ public class SettingsActivity extends Activity {
             long now = System.nanoTime();
             float dt = lastNanos == 0 ? 1 / 60f : Math.min(0.05f, (now - lastNanos) / 1e9f);
             lastNanos = now;
+            boolean moving = busy();
             for (int i = 0; i < pop.length; i++) {
                 pop[i].target = i == focus && i < rowCount() ? 1 : 0;
-                pop[i].step(dt);
+                moving |= pop[i].step(dt);
             }
             long up = SystemClock.uptimeMillis();
             float seconds = (up - startedAt) / 1000f;
-            if (up - lastSky >= 100) {
-                lastSky = up;
-                scene.advance(seconds);
+            // No recurring vsync callback or GPU work once focus settles. State polling redraws only changes.
+            if (running && moving && !framePending) {
+                framePending = true;
+                Choreographer.getInstance().postFrameCallback(this);
             }
-            scene.drawBackground(c);
-
-            // On the left: big symbol, title, description.
-            float cx = 500 * k;
-            Symbols.draw(getContext(), c, "sparkles", cx, 400 * k, 150 * k, 0xEBFFFFFF);
-            c.drawText("Free My TV", cx, 612 * k, title);
-            c.drawText(Ui.tr("Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
-            c.drawText(versionName(getContext()), cx, 704 * k, version);
+            if (!moving) lastNanos = 0;
+            c.drawRect(0, 0, w, h, backdrop);
+            surface.setColor(0x401A2432);
+            tmp.set(968 * k, 100 * k, 1856 * k, 990 * k);
+            c.drawRoundRect(tmp, 30 * k, 30 * k, surface);
+            rim.setColor(0x12FFFFFF);
+            c.drawRoundRect(tmp, 30 * k, 30 * k, rim);
+            surface.setColor(0x208CE8D4);
+            tmp.set(112 * k, 144 * k, 192 * k, 224 * k);
+            c.drawRoundRect(tmp, 24 * k, 24 * k, surface);
+            Symbols.draw(getContext(), c, "sparkles", 152 * k, 184 * k, 42 * k, 0xFF8CE8D4);
+            c.drawText("Free My TV", 112 * k, 320 * k, title);
+            drawCopy(c, 0, Ui.tr("Your TV's home screen and screensaver"), 112, 350, 700, 3, copy);
+            c.drawText(displayedVersion, 112 * k, 984 * k, version);
 
             if (screen == MAIN) drawMain(c, seconds); else if (screen == HOME_CHOICE) drawChoice(c); else if (screen == PICKER) drawPicker(c); else if (screen == SHELF_EDIT) drawShelfEditor(c);
             else if (screen == TMDB_KEY) drawKey(c);
@@ -516,6 +528,7 @@ public class SettingsActivity extends Activity {
                     Ui.tr("Home Settings"), Ui.tr("Shelf"), Ui.tr("Top Buttons"),
                     Ui.tr("Remote Buttons"), Ui.tr("Sleep Timer"), Ui.tr("TV Settings")};
             String[] values = {working ? "" : mode, Ui.tr("Preview"), "", "", "", "", "", ""};
+            c.drawText(Ui.tr("Settings"), (LIST_X + 30) * k, 162 * k, keyHeading);
             for (int i = 0; i < labels.length; i++) {
                 float y = (MAIN_TOP + i * (ROW_H + MAIN_GAP)) * k;
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + ROW_H * k);
@@ -524,7 +537,8 @@ public class SettingsActivity extends Activity {
                 int ink = off ? blend(0x73FFFFFF, 0x731C1C1E, f) : blend(0xF2FFFFFF, INK, f);
                 rowLabel.setColor(ink);
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
-                c.drawText(labels[i], rowRect.left + 30 * k, base, rowLabel);
+                Symbols.draw(getContext(), c, MAIN_ICONS[i], rowRect.left + 38 * k, rowRect.centerY(), 28 * k, ink);
+                c.drawText(labels[i], rowRect.left + 72 * k, base, rowLabel);
                 float right = rowRect.right - 30 * k;
                 if (off) {
                     rowValue.setColor(blend(0x59FFFFFF, 0x591C1C1E, f));
@@ -542,39 +556,42 @@ public class SettingsActivity extends Activity {
                     spinner.setColor(blend(0xFFFFFFFF, INK, f));
                     Ui.spinner(c, sx, rowRect.centerY(), 12 * k, seconds * 1.3f, spinner);
                 } else {
-                    rowValue.setColor(blend(0x8CFFFFFF, 0x8C1C1C1E, f));
+                    rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
                     c.drawText(values[i], right, base, rowValue);
                 }
             }
 
-            float y = (MAIN_TOP + labels.length * (ROW_H + MAIN_GAP) + 20) * k;
             String error = state.optString("error");
             if (working && busyText.equals(Ui.tr("Accept “Allow USB debugging?” on the TV (tick “Always allow”)."))) {
-                c.drawText(Ui.tr("On the TV: tick “Always allow” and press OK."),
-                        LIST_X * k + 30 * k, y, warn);
-                y += 46 * k;
+                smallCopy.setColor(AMBER);
+                drawCopy(c, 1, Ui.tr("On the TV: tick “Always allow” and press OK."), 112, 500, 700, 5, smallCopy);
             } else if (!working && !error.isEmpty()) {
-                // The whole message, on up to five lines: some say what to do (the Wi-Fi one, #14).
-                int width = Math.round(760 * k);
-                if (errorLayout == null || !error.equals(errorShown) || errorLayout.getWidth() != width) {
-                    errorShown = error;
-                    errorLayout = StaticLayout.Builder.obtain(error, 0, error.length(), new TextPaint(warn), width)
-                            .setMaxLines(5).setEllipsize(TextUtils.TruncateAt.END).build();
-                }
-                c.save();
-                c.translate(LIST_X * k + 30 * k, y - errorLayout.getLineBaseline(0));
-                errorLayout.draw(c);
-                c.restore();
-                y += errorLayout.getLineBaseline(errorLayout.getLineCount() - 1) - errorLayout.getLineBaseline(0) + 46 * k;
+                smallCopy.setColor(AMBER);
+                drawCopy(c, 1, error, 112, 500, 700, 12, smallCopy);
+            } else {
+                smallCopy.setColor(0x99FFFFFF);
+                drawRecs(c, 510 * k);
+                drawNotices(c, (Config.WATCHMODE_KEY.trim().isEmpty() ? 785 : 845) * k, 112, 700);
             }
-            y = drawComparison(c, y);
-            y = drawRecs(c, y + 26 * k);
-            drawNotices(c, y + 40 * k);
+        }
+
+        /** Wrapped explanatory copy is rebuilt only when its text or the view size changes. */
+        private void drawCopy(Canvas c, int slot, String text, float x, float y, int width, int lines, TextPaint paint) {
+            if (copyLayouts[slot] == null || !text.equals(copyText[slot])) {
+                copyText[slot] = text;
+                copyLayouts[slot] = StaticLayout.Builder.obtain(text, 0, text.length(), paint, Math.round(width * k))
+                        .setMaxLines(lines).setEllipsize(TextUtils.TruncateAt.END).setIncludePad(false)
+                        .setLineSpacing(7 * k, 1).build();
+            }
+            c.save();
+            c.translate(x * k, y * k);
+            copyLayouts[slot].draw(c);
+            c.restore();
         }
 
         /** Home screen picks: status, and the credit TMDB asks for. */
         private float drawRecs(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k;
+            float x = 112 * k;
             c.drawText(Ui.tr("RECOMMENDATIONS"), x, y, header);
             String line;
             String error = recs.optString("error");
@@ -585,32 +602,21 @@ public class SettingsActivity extends Activity {
             else if (!error.isEmpty()) line = Ui.trf("Error: {error}.", "error", error);
             else if (count > 0) line = Ui.trf("On · {n} titles from the TV's apps, new ones every hour.", "n", count);
             else line = Ui.tr("Fetching titles…");
-            c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
-            version.setTextAlign(Paint.Align.LEFT);
-            c.drawText(Ui.tr("This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 78 * k, version);
+            drawCopy(c, 2, line, 112, y / k + 26, 700, 3, copy);
+            drawCopy(c, 3, Ui.tr("This product uses the TMDB API but is not endorsed or certified by TMDB."), 112, y / k + 132, 700, 3, smallCopy);
             if (!Config.WATCHMODE_KEY.trim().isEmpty()) {
-                c.drawText(Ui.tr("Links to the titles by Watchmode."), x, y + 108 * k, version);
+                drawCopy(c, 4, Ui.tr("Links to the titles by Watchmode."), 112, y / k + 222, 700, 2, smallCopy);
             }
-            version.setTextAlign(Paint.Align.CENTER);
             return y + (Config.WATCHMODE_KEY.trim().isEmpty() ? 78 : 108) * k;
         }
 
-        /** List row: no background; focused, white with a shadow (the Apple TV focus). Returns how focused it is. */
+        /** Stable card bounds and a light focus fill: no blurred masks accumulating in the GPU cache. */
         private float drawRowBackground(Canvas c, int i) {
             float f = Ui.clamp(pop[i].value);
-            if (f > 0.01f) {
-                float s = 1 + 0.02f * f;
-                float cx = rowRect.centerX(), cy = rowRect.centerY();
-                tmp.set(cx - rowRect.width() * s / 2, cy - rowRect.height() * s / 2, cx + rowRect.width() * s / 2, cy + rowRect.height() * s / 2);
-                float r = 18 * k * s;
-                tmp.offset(0, 10 * k * f);
-                shadow.setColor(Ui.alpha(0xFF000000, 0.4f * f));
-                c.drawRoundRect(tmp, r, r, shadow);
-                tmp.offset(0, -10 * k * f);
-                white.setAlpha(Math.round(255 * f));
-                c.drawRoundRect(tmp, r, r, white);
-                rowRect.set(tmp);
-            }
+            white.setColor(blend(0xFF1D2B3A, 0xFFE6F4F1, f));
+            c.drawRoundRect(rowRect, 18 * k, 18 * k, white);
+            rim.setColor(blend(0x16FFFFFF, 0xFF8CE8D4, f));
+            c.drawRoundRect(rowRect, 18 * k, 18 * k, rim);
             return f;
         }
 
@@ -635,8 +641,8 @@ public class SettingsActivity extends Activity {
             return y + (46 + 40 * rows.length) * k;
         }
 
-        private void drawNotices(Canvas c, float y) {
-            float x = LIST_X * k + 30 * k;
+        private void drawNotices(Canvas c, float y, float left, float width) {
+            float x = left * k;
             c.drawText(Ui.tr("NOTICES"), x, y, header);
             JSONArray notices = state.optJSONArray("notices");
             int shown = 0;
@@ -644,7 +650,7 @@ public class SettingsActivity extends Activity {
                 JSONObject o = notices.optJSONObject(i);
                 if (o == null) continue;
                 String line = ago(o.optLong("at")) + " · " + o.optString("text");
-                c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + (42 + 38 * shown) * k, notice);
+                c.drawText(TextUtils.ellipsize(line, notice, width * k, TextUtils.TruncateAt.END).toString(), x, y + (42 + 38 * shown) * k, notice);
                 shown++;
             }
             if (shown == 0) c.drawText(Ui.tr("None yet."), x, y + 42 * k, notice);
@@ -652,7 +658,7 @@ public class SettingsActivity extends Activity {
 
         /** Home screen choice: Free My TV or the original, with a check on the one in use. */
         private void drawChoice(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = keyHeading;
             c.drawText(Ui.tr("Home Screen"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             String[][] options = {{"Free My TV", Ui.tr("No ads, with the new screensaver")},
                     {Ui.tr("Original"), Ui.tr("The TV's factory home screen")}};
@@ -670,9 +676,12 @@ public class SettingsActivity extends Activity {
                     Symbols.draw(getContext(), c, "check", rowRect.right - 30 * k - cw / 2, rowRect.centerY(), 26 * k, blend(0xFFFFFFFF, INK, f));
                 }
             }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            Paint hint = rowSub;
+            hint.setColor(0xB3FFFFFF);
             c.drawText(Ui.tr("Switching takes a few seconds; the screen blinks while it measures."), LIST_X * k + 30 * k,
                     (LIST_TOP + 20 + 2 * (CHOICE_H + ROW_GAP) + 40) * k, hint);
+            drawComparison(c, 570 * k);
+            drawNotices(c, 815 * k, LIST_X + 30, LIST_R - LIST_X - 60);
         }
 
         private static int blend(int a, int b, float f) {
@@ -804,7 +813,7 @@ public class SettingsActivity extends Activity {
         private static final int PHOTOS_ROW = 3, TOP_ROW = 5, PICKS_ROW = 6, WATCH_ROW = 7, SAVER_ROW = 8, WEATHER_ROW = 9,
                 CITY_ROW = 10, FORECAST_ROW = 11, PLAYING_ROW = 12, QUOTES_ROW = 13, COIN_ROWS = 14;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
-        private static final int SETTINGS_VISIBLE = 10;
+        private static final int SETTINGS_VISIBLE = 9;
 
         private boolean dollar() {
             return "BRL".equals(Place.currency());
@@ -1664,10 +1673,11 @@ public class SettingsActivity extends Activity {
         }
 
         private void drawWatchApps(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = keyHeading;
             c.drawText(Ui.tr("Continue Watching apps"),
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            Paint hint = rowSub;
+            hint.setColor(0xB3FFFFFF);
             if (watchApps == null || watchApps.isEmpty() && watchHiddenCount == 0) {
                 c.drawText(watchApps == null ? Ui.tr("Looking for the apps…")
                         : Ui.tr("No app on this TV shares what you watch."), LIST_X * k + 30 * k, (LIST_TOP + 56) * k, hint);
@@ -1757,7 +1767,7 @@ public class SettingsActivity extends Activity {
         }
 
         private void drawShelfEditor(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = keyHeading;
             c.drawText(editingTop ? Ui.tr("Top Buttons") : Ui.tr("Shelf"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
             for (int i = 0; i < rows; i++) {
@@ -1781,7 +1791,8 @@ public class SettingsActivity extends Activity {
                 }
                 c.drawText(off ? Ui.tr("Unavailable") : place >= 0 ? "#" + (place + 1) : Ui.tr("shelf|Off"), right, base, rowValue);
             }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            Paint hint = rowSub;
+            hint.setColor(0xB3FFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
             if (!editingTop && HomeApps.lowRam(getContext())) {
                 c.drawText(Ui.tr("This TV has little memory, so the shelf holds fewer apps."), LIST_X * k + 30 * k, hy + 38 * k, hint);
@@ -1823,7 +1834,7 @@ public class SettingsActivity extends Activity {
 
         /** A long list (the apps): nine rows at a time, the one in use checked. */
         private void drawPicker(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = keyHeading;
             String title = pickFor == PICK_CITY ? Ui.tr("City")
                     : pickFor == PICK_LANGUAGE ? Ui.tr("Language")
                     : pickFor == PICK_SLEEP ? Ui.tr("Sleep Timer") : pickFor == PICK_PLACE ? Ui.tr("Position")
@@ -1846,7 +1857,8 @@ public class SettingsActivity extends Activity {
                     Symbols.draw(getContext(), c, "check", rowRect.right - 30 * k - cw / 2, rowRect.centerY(), 26 * k, blend(0xFFFFFFFF, INK, f));
                 }
             }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            Paint hint = rowSub;
+            hint.setColor(0xB3FFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
             c.drawText((pickScroll + focus + 1) + " / " + pickLabels.size() + "  ·  " + Ui.tr("OK picks, Back cancels."),
                     LIST_X * k + 30 * k, hy, hint);
@@ -1867,7 +1879,7 @@ public class SettingsActivity extends Activity {
 
         /** Picks from: one row per streaming service on the TV, On or Off. */
         private void drawServices(Canvas c) {
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = keyHeading;
             c.drawText(Ui.tr("Picks from"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = Math.min(PICK_VISIBLE, services.size());
             for (int i = 0; i < rows; i++) {
@@ -1881,7 +1893,8 @@ public class SettingsActivity extends Activity {
                 c.drawText(service[1], rowRect.left + 30 * k, base, rowLabel);
                 c.drawText(onOff(!Prefs.serviceOff(service[0])), rowRect.right - 30 * k, base, rowValue);
             }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            Paint hint = rowSub;
+            hint.setColor(0xB3FFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
             c.drawText(services.isEmpty() ? Ui.tr("No streaming apps on this TV.")
                     : Ui.tr("Titles from a service that is off are left out of the picks."),
@@ -1892,7 +1905,7 @@ public class SettingsActivity extends Activity {
             boolean keys = screen == REMOTE_KEYS;
             String[] labels = listLabels();
             String[] values = listValues();
-            Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+            Paint heading = keyHeading;
             c.drawText(keys ? Ui.tr("Remote Buttons") : screen == POWER ? Ui.tr("Sleep Timer") : screen == PICKS ? Ui.tr("Picks") : Ui.tr("Home Settings"),
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             float pitch = LIST_ROW_H + LIST_ROW_GAP;
@@ -1921,7 +1934,8 @@ public class SettingsActivity extends Activity {
                 c.drawText(TextUtils.ellipsize(values[from + i], rowValueFit, room, TextUtils.TruncateAt.END).toString(),
                         right, base, rowValue);
             }
-            Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
+            Paint hint = rowSub;
+            hint.setColor(0xB3FFFFFF);
             float hy = (LIST_TOP + 20 + rows * pitch + 36) * k;
             // A list longer than the screen says where we are in it, as the app picker does. Photos say where they come
             // from; on the Sleep Timer screen, the timer and Position open a list on OK.

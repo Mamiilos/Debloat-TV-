@@ -2,11 +2,13 @@ package io.freemytv;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -35,7 +37,9 @@ public class RecentActivity extends Activity {
     private static final ExecutorService IMAGES = Executors.newFixedThreadPool(2);
     private final android.os.Handler handler = new android.os.Handler();
     private LinearLayout page;
-    private boolean settings, stopped;
+    private boolean settings;
+    private volatile boolean stopped;
+    private volatile int imageGeneration;
     private KeyPage clientPage;
     private AlertDialog codeDialog;
     private String fingerprint = "";
@@ -51,7 +55,9 @@ public class RecentActivity extends Activity {
     @Override
     public void onResume() {
         super.onResume();
+        boolean returning = stopped;
         stopped = false;
+        if (returning) render();
         refresh();
         handler.postDelayed(this::refresh, 2000);
         handler.postDelayed(this::refresh, 6000);
@@ -60,6 +66,7 @@ public class RecentActivity extends Activity {
     @Override
     public void onPause() {
         stopped = true;
+        imageGeneration++;
         handler.removeCallbacksAndMessages(null);
         closeClientPage();
         TraktSync.cancelLogin();
@@ -83,7 +90,8 @@ public class RecentActivity extends Activity {
         TextView v = new TextView(this);
         v.setText(value);
         v.setTextSize(size);
-        v.setTextColor(Color.rgb(29, 29, 31));
+        v.setTypeface(size >= 22 ? Ui.displaySemibold : Ui.regular);
+        v.setTextColor(size >= 17 ? 0xffedf4f8 : 0xffaebdcb);
         v.setPadding(0, dp(6), 0, dp(6));
         return v;
     }
@@ -93,9 +101,35 @@ public class RecentActivity extends Activity {
         b.setText(label);
         b.setAllCaps(false);
         b.setTextSize(16);
+        b.setTypeface(Ui.medium);
+        b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        b.setPadding(dp(18), dp(10), dp(18), dp(10));
+        b.setMinHeight(dp(52));
+        b.setStateListAnimator(null);
+        b.setBackgroundTintList(null);
+        StateListDrawable bg = new StateListDrawable();
+        bg.addState(new int[] {android.R.attr.state_focused}, buttonBackground(true));
+        bg.addState(new int[] {android.R.attr.state_pressed}, buttonBackground(true));
+        bg.addState(new int[0], buttonBackground(false));
+        b.setBackground(bg);
+        b.setTextColor(new ColorStateList(new int[][] {
+                {android.R.attr.state_focused}, {android.R.attr.state_pressed}, new int[0]},
+                new int[] {0xff13252d, 0xff13252d, 0xffedf4f8}));
+        int colon = label.indexOf(':');
+        b.setTag(colon < 0 ? label : label.substring(0, colon));
         b.setOnClickListener(v -> action.run());
-        parent.addView(b, new LinearLayout.LayoutParams(-2, dp(52)));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(parent == page ? -1 : -2, -2);
+        lp.setMargins(0, dp(8), parent == page ? 0 : dp(12), dp(8));
+        parent.addView(b, lp);
         return b;
+    }
+
+    private GradientDrawable buttonBackground(boolean focused) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(focused ? 0xffe6f4f1 : 0xff1d2b3a);
+        bg.setCornerRadius(dp(10));
+        bg.setStroke(dp(1), focused ? 0xff8ce8d4 : 0xff354553);
+        return bg;
     }
 
     private void refresh() {
@@ -115,13 +149,15 @@ public class RecentActivity extends Activity {
     }
 
     private void render() {
+        imageGeneration++;
         Object focused = getCurrentFocus() == null ? null : getCurrentFocus().getTag();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.rgb(245, 245, 247));
+        scroll.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[] {0xff172d38, 0xff090f1a}));
         page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(40), dp(24), dp(40), dp(24));
+        page.setPadding(dp(56), dp(32), dp(56), dp(32));
         scroll.addView(page);
         setContentView(scroll);
         page.addView(
@@ -130,6 +166,7 @@ public class RecentActivity extends Activity {
         page.addView(bar);
         if (settings) {
             showSettings(bar);
+            restoreFocus(focused);
             return;
         }
         button(
@@ -185,7 +222,10 @@ public class RecentActivity extends Activity {
         if ((RecentMedia.artEnabled(this) || PersonalRecs.selected(this)) && Recs.key().isEmpty())
             page.addView(text(Ui.tr("TMDB key") + ": " + Ui.tr("Not set"), 14));
         if (!RecentMedia.problem.isEmpty()) page.addView(text(RecentMedia.problem, 14));
-        if (!RecentMedia.enabled(this)) return;
+        if (!RecentMedia.enabled(this)) {
+            restoreFocus(focused);
+            return;
+        }
         if (checkSelfPermission("android.permission.READ_TV_LISTINGS")
                 != PackageManager.PERMISSION_GRANTED)
             button(
@@ -205,6 +245,10 @@ public class RecentActivity extends Activity {
         row(Ui.tr("Recently played"), recent);
         if (resume.isEmpty() && recent.isEmpty())
             page.addView(text(Ui.tr("No recent media yet."), 18));
+        restoreFocus(focused);
+    }
+
+    private void restoreFocus(Object focused) {
         if (focused != null) {
             View v = page.findViewWithTag(focused);
             if (v != null) v.requestFocus();
@@ -213,7 +257,9 @@ public class RecentActivity extends Activity {
 
     private void row(String title, List<RecentMedia.Item> items) {
         if (items.isEmpty()) return;
-        page.addView(text(title, 22));
+        TextView heading = text(title, 22);
+        heading.setPadding(0, dp(24), 0, dp(10));
+        page.addView(heading);
         HorizontalScrollView row = new HorizontalScrollView(this);
         row.setClipToPadding(false);
         row.setPadding(dp(4), dp(8), dp(4), dp(12));
@@ -235,11 +281,10 @@ public class RecentActivity extends Activity {
             card.setOnFocusChangeListener(
                     (v, on) -> {
                         card.setBackground(cardBackground(on));
-                        card.setElevation(on ? dp(6) : 0);
                     });
             ImageView art = new ImageView(this);
             art.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            art.setBackgroundColor(0xffe2e4e9);
+            art.setBackgroundColor(0xff101b27);
             card.addView(art, new LinearLayout.LayoutParams(-1, dp(114)));
             artwork(item, art);
             TextView name = text(item.title, 17);
@@ -300,15 +345,17 @@ public class RecentActivity extends Activity {
 
     private GradientDrawable cardBackground(boolean focus) {
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.WHITE);
+        bg.setColor(focus ? 0xff293e4b : 0xff1d2b3a);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(focus ? 3 : 1), focus ? 0xff246bfd : 0xffe4e4e8);
+        bg.setStroke(dp(focus ? 3 : 1), focus ? 0xff8ce8d4 : 0xff354553);
         return bg;
     }
 
     private void artwork(RecentMedia.Item item, ImageView target) {
+        final int generation = imageGeneration;
         IMAGES.execute(
                 () -> {
+                    if (stopped || generation != imageGeneration) return;
                     Bitmap bitmap = null;
                     try {
                         if (!item.image.isEmpty()) {
@@ -354,14 +401,14 @@ public class RecentActivity extends Activity {
                         if (loaded != null)
                             runOnUiThread(
                                     () -> {
-                                        if (!stopped) target.setImageBitmap(loaded);
+                                        if (!stopped && generation == imageGeneration) target.setImageBitmap(loaded);
                                     });
                         else {
                             final android.graphics.drawable.Drawable icon =
                                     getPackageManager().getApplicationIcon(item.pkg);
                             runOnUiThread(
                                     () -> {
-                                        if (!stopped) {
+                                        if (!stopped && generation == imageGeneration) {
                                             target.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
                                             target.setImageDrawable(icon);
                                         }
