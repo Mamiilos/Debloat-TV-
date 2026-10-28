@@ -117,7 +117,11 @@ async function cached(env, key, fresh, load) {
 async function ukhoEvents(env, id) {
   const url = `https://admiraltyapi.azure-api.net/uktidalapi/api/V1/Stations/${encodeURIComponent(id)}/TidalEvents?duration=7`;
   const r = await fetch(url, { headers: { 'Ocp-Apim-Subscription-Key': env.UKHO_KEY } });
-  if (!r.ok) throw new Error(`UKHO ${id}: HTTP ${r.status}`);
+  if (!r.ok) {
+    // UKHO's gateway says why (an invalid key, a missing subscription): its message, never the key.
+    const why = (await r.text().catch(() => '')).match(/"message"\s*:\s*"([^"]{0,160})/);
+    throw new Error(`UKHO ${id}: HTTP ${r.status}` + (why ? ` (${why[1]})` : ''));
+  }
   const list = await r.json();
   // UKHO's times are UTC without a zone: say so, so the TV shows them in its own time zone.
   return list
