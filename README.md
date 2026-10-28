@@ -146,6 +146,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | Key | What it does | Default |
 |---|---|---|
 | `watch_images_tmdb` | Optional episode stills and movie backdrops; sends viewing titles to TMDB (Android only) | `false` |
+| `personalized_recommendations` | `false` | Optional Android TV history-based recommendations mixed with trending picks. Requires Playback history; sends selected titles/IDs to TMDB. TV settings override this value. |
 | `trakt_client_id` | Optional public Trakt application ID for device login (Android only); no Client Secret | empty |
 | `tmdb_key` | Your free TMDB key, for the picks | empty |
 | `tmdb_region` | Your country (two letters): which titles are on which app | `US` |

@@ -47,13 +47,18 @@ import java.util.concurrent.Executors;
  * releases needs), else config.properties' "tmdb_key", built into the app. It never goes to the log.
  */
 final class Recs {
-    static final class Pick {
+    static final class Pick implements RecommendationMix.Candidate {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, poster, meta = "", app, pkg;   // poster: the portrait image of the narrow cards
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
+        String basedOn = "", originalTitle = "";
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
+        public String identity() { return key(this); }
+        public String family() { return franchise(title); }
+        public boolean personal() { return !basedOn.isEmpty(); }
+        public boolean library() { return id < 0; }
     }
 
     interface Listener { void onRecs(); }
@@ -180,6 +185,8 @@ final class Recs {
     private volatile String error = "";
     private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
     private volatile long failedAt, keyStamp, linkRetryAt;
+    private volatile long historyCheckedAt, historyFileAt;
+    private volatile String profileSignature = "";
     private volatile String listLanguage = "";   // language used for the saved titles, genres and texts
 
     private Recs(Context c) {
@@ -193,6 +200,7 @@ final class Recs {
             listAt = cache.getLong("listAt", 0);
             listLanguage = cache.getString("language", cache.getBoolean("english", false) ? "en" : "pt");
             keyStamp = cache.getLong("keyStamp", 0);
+            profileSignature = cache.getString("profileSignature", "");
         } catch (Exception ignored) {
         }
         // Right after the TV starts, the first fetch runs before the Wi-Fi is up and fails, which would hold the old
@@ -305,27 +313,15 @@ final class Recs {
     List<Pick> now(String kind) {
         List<Pick> list = new ArrayList<>();
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
+        boolean personalized = PersonalRecs.enabled(context);
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
         for (Pick p : picks) {
-            if ((kind == null || kind.equals(p.kind))
+            if ((!p.personal() || personalized) && (kind == null || kind.equals(p.kind))
                     && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing or switched off: skip
         }
         if (list.isEmpty()) return list;
         long hour = System.currentTimeMillis() / 3600_000L;
-        // Prefs.cards() per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
-        List<Pick> out = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        int cards = Prefs.cards();
-        boolean plex = false;
-        for (int i = 0; i < list.size() && out.size() < cards; i++) {
-            Pick p = list.get((int) ((hour * cards + i) % list.size()));
-            if (p.id < 0 && plex) continue;   // a Plex title is the surprise: one per tab, not the movie and the show together
-            if (seen.add(franchise(p.title))) {
-                out.add(p);
-                plex |= p.id < 0;
-            }
-        }
-        return out;
+        return RecommendationMix.choose(list, Prefs.cards(), hour, personalized);
     }
 
     /** "Law & Order: Special Victims Unit" → "law & order" (what comes before ":" or " - "). */
@@ -379,14 +375,25 @@ final class Recs {
         int p = period(now);
         boolean stale = newKey || p != period || now - listAt > LIST_EVERY || now < listAt || picks.isEmpty()
                 || !listLanguage.equals(Ui.language);
+        long fileStamp = PersonalRecs.historyStamp(context);
+        boolean historyChanged = PersonalRecs.enabled(context) && fileStamp != historyFileAt
+                && (historyCheckedAt == 0 || now < historyCheckedAt || now - historyCheckedAt >= 60000);
         boolean missing = false;
         for (Pick pick : wanted()) missing |= !pick.detailed || !hasImage(pick) || needsLink(pick);
-        if (!stale && !missing) return;
+        if (!stale && !missing && !historyChanged) return;
         keyStamp = stamp;
         fetching = true;
         io.execute(() -> {
             try {
-                if (stale) fetchList(p);
+                if (stale || historyChanged) {
+                    PersonalRecs.Snapshot history = PersonalRecs.snapshot(context);
+                    if (stale || !history.signature.equals(profileSignature)) {
+                        fetchList(p, history);
+                        profileSignature = history.signature;
+                    }
+                    historyCheckedAt = System.currentTimeMillis();
+                    historyFileAt = fileStamp;
+                }
                 // One failing title doesn't stop the others; whatever has no app on the TV is not downloaded.
                 int failures = 0, tried = 0;
                 String last = "";
@@ -509,7 +516,7 @@ final class Recs {
 
     // MARK: - TMDB
 
-    private void fetchList(int p) throws Exception {
+    private void fetchList(int p, PersonalRecs.Snapshot history) throws Exception {
         // None of the services we know is on the TV (or hide_services hides them all): no region would change that.
         boolean any = false;
         for (String[] s : SERVICES) any |= installed(s[2]);
@@ -571,11 +578,36 @@ final class Recs {
         java.util.Set<String> seen = new java.util.HashSet<>();
         alternate(list, seen, hotMovies, hotShows, 24);
         alternate(list, seen, newMovies, newShows, 24);
+        List<Pick> related = new ArrayList<>();
+        if (PersonalRecs.enabled(context)) {
+            int checked = 0;
+            for (PersonalRecs.Suggestion suggestion : PersonalRecs.suggestions(context, history, lang())) {
+                if (!PersonalRecs.enabled(context) || checked >= 20 || related.size() >= 12) break;
+                List<Pick> candidate = new ArrayList<>();
+                add(candidate, suggestion.data, suggestion.kind);
+                if (candidate.isEmpty()) continue;
+                Pick pick = candidate.get(0);
+                pick.basedOn = suggestion.basedOn;
+                checked++;
+                try { fetchDetails(pick); } catch (Exception ignored) { continue; }
+                if (pick.pkg != null && !excluded(history, pick)) related.add(pick);
+            }
+            list.removeIf(pick -> excluded(history, pick));
+            Set<String> personalIds = new HashSet<>();
+            for (Pick pick : related) personalIds.add(key(pick));
+            list.removeIf(pick -> personalIds.contains(key(pick)));
+            list.addAll(related);
+        }
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         picks = list;
         period = p;
         listAt = System.currentTimeMillis();
         listLanguage = Ui.language;
+    }
+
+    private static boolean excluded(PersonalRecs.Snapshot history, Pick pick) {
+        return history.excludes(pick.kind, pick.id, pick.title)
+                || history.excludes(pick.kind, pick.id, pick.originalTitle);
     }
 
     /** Language of titles and genres (TMDB's "fr-FR", "zh-CN"…); the services come from the region. */
@@ -641,6 +673,7 @@ final class Recs {
         p.id = o.optInt("id");
         p.kind = kind;
         p.title = o.optString(kind.equals("movie") ? "title" : "name");
+        p.originalTitle = o.optString(kind.equals("movie") ? "original_title" : "original_name");
         p.backdrop = backdrop;
         p.poster = o.isNull("poster_path") ? "" : o.optString("poster_path");
         list.add(p);
@@ -691,6 +724,8 @@ final class Recs {
         }
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
+        if (p.personal()) p.meta = Ui.trf("Because you watched {title}", "title", p.basedOn)
+                + (p.app == null ? "" : " · " + SERVICE_NAME.get(p.app));
         p.detailed = true;
     }
 
@@ -787,6 +822,7 @@ final class Recs {
     private long sourceStamp() {
         long stamp = ((key().hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0)) * 31L + Config.PLEX_URL.hashCode();
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
+        stamp = stamp * 31L + (PersonalRecs.enabled(context) ? 1 : 0);
         return stamp;
     }
 
@@ -1109,10 +1145,11 @@ final class Recs {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("poster", p.poster == null ? "" : p.poster).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed));
+                        .put("detailed", p.detailed).put("basedOn", p.basedOn).put("originalTitle", p.originalTitle));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
+                    .putString("profileSignature", profileSignature)
                     .putLong("keyStamp", keyStamp).putInt("version", CACHE_VERSION);
             // Watchmode links of titles no longer in the list go (the refused-key mark stays).
             Set<String> keep = new HashSet<>();
@@ -1139,6 +1176,8 @@ final class Recs {
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
+            p.basedOn = o.optString("basedOn");
+            p.originalTitle = o.optString("originalTitle");
             out.add(p);
         }
         return out;

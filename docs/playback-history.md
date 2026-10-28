@@ -13,6 +13,16 @@ The home row's app/content filters affect that row. Playback history has its own
 
 For artwork only, recognizable video filenames are reduced to a title and season/episode or movie year. Missing media types use TMDB's combined movie/TV search. If a uniquely matched series uses different episode numbering or lacks that episode in TMDB, its backdrop or poster is used instead. These hints never supply Trakt playback identity. Unknown or ambiguous titles can still lack catalog artwork.
 
+## Personalized recommendations
+
+**Home Settings → Playback history → Personalized recommendations** optionally mixes titles related to the household's history with the existing trending/recent-release picks. It is off by default, requires Playback history and the existing TMDB key, and works without a Trakt account. A personal build may explicitly opt in with `personalized_recommendations=true`; generic builds default to false.
+
+The device reads up to 80 saved entries from the past 90 days and selects at most four distinct recent titles as seeds. Progress must reach 20% of the reported duration, bounded between five and ten minutes; this is an interest signal, not proof of completion. Multiple episodes of one series do not create multiple seeds. Exact catalog matching supplies TMDB identifiers; ambiguous matches are skipped. Selected titles/episode hints and catalog identifiers are sent to TMDB for lookup and related-title recommendations. The full history, account identities and playback timestamps are not uploaded. Matching results are cached privately and bounded.
+
+Each visible three-card group aims for two related titles and one general pick, filling from the other group when candidates are scarce. Smaller layouts mix across hours. Titles already represented in the history are excluded by normalized names and resolved seed identifiers. Candidates must be available from a supported installed service in the configured region, and hidden services/animation filters still apply. Personalized cards explain their source with “Because you watched …”. This is a shared TV profile; it cannot distinguish people using different streaming-app profiles.
+
+History changes are checked in the background at most once per minute while recommendations refresh. Only changes to the seed titles or exclusions rebuild the list; ordinary progress ticks do not repeatedly query the catalog. General picks remain the fallback when there is no useful history or related-title lookups fail. Turning the option or Playback history off immediately removes personalized candidates from display and stops new lookup batches; an in-flight lookup can finish. Clearing history removes its influence on the next refresh, although provider rows can subsequently be imported again.
+
 ## Connect Trakt
 
 Open **Home Settings → Playback history → Trakt → Connect Trakt**. Scan the QR code on your phone, or visit [Trakt activation](https://auth.trakt.tv/activate), enter the TV's code and approve access on Trakt. Free My TV never asks for your Trakt password. Disconnect revokes the token when the service is reachable and clears it locally.

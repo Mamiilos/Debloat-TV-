@@ -114,6 +114,14 @@ final class WatchImages {
                                 item.seasonNumber,
                                 item.episodeNumber,
                                 item.releaseYear);
+        JSONObject match = match(query, item.duration);
+        if (match == null) return null;
+        String still = match.optString("episode_still", "");
+        return still.startsWith("/") ? still : backdrop(match);
+    }
+
+    /** Catalog match for artwork or recommendations only; never Trakt evidence. */
+    static JSONObject match(WatchTitle query, long playbackDuration) throws Exception {
         if (query.type.isEmpty() || query.title.isEmpty()) return null;
         JSONArray found =
                 Recs.catalog(
@@ -190,20 +198,20 @@ final class WatchImages {
                 }
                 long duration = ep.optLong("runtime") * 60000L;
                 if (duration > 0
-                        && item.duration > 0
-                        && Math.abs(duration - item.duration) > 300000) continue;
+                        && playbackDuration > 0
+                        && Math.abs(duration - playbackDuration) > 300000) continue;
                 if (episodeShow != null) return null;
                 episodeShow = result;
                 episodeStill = ep.optString("still_path", "");
             }
             if (episodeShow != null) {
-                if (episodeStill.startsWith("/")) return episodeStill;
-                return backdrop(episodeShow);
+                episodeShow.put("episode_still", episodeStill);
+                return episodeShow;
             }
         }
         // Provider season numbering can differ from TMDB. A unique series still has useful artwork,
         // even when that episode is unavailable. This never establishes playback identity.
-        return matches.size() == 1 ? backdrop(matches.get(0)) : null;
+        return matches.size() == 1 ? matches.get(0) : null;
     }
 
     private static String backdrop(JSONObject result) {

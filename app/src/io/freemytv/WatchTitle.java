@@ -5,7 +5,7 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Display/artwork hints only. Never used to identify a completed watch for Trakt. */
+/** Display, artwork and recommendation hints. Never used to identify a completed watch for Trakt. */
 final class WatchTitle {
     private static final Pattern EPISODE =
             Pattern.compile("(?i)^(.+?)[ ._-]+S(\\d{1,3})[ ._-]*E(\\d{1,4})(?:[^0-9].*)?$");

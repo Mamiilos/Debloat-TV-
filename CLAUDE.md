@@ -283,6 +283,9 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   *Original* revokes it with `pm revoke`. Watch Next provider pictures load only from the TV (`content://`, `android.resource://`).
   The separate, off-by-default TMDB images setting may search viewing titles and episode numbers on TMDB and fetch
   images only from image.tmdb.org. `WatchImages` bounds and caches them; artwork matching never supplies Trakt evidence.
+  Optional personalized recommendations use `PersonalRecs` and `RecommendationMix`: opt-in history seeds plus trends,
+  fixed TMDB endpoints, bounded queries/cache, region/service filtering, no Trakt evidence. Keep general fallback and
+  immediate opt-out filtering; test mixing and brief-playback exclusion in `tools/test-playback.sh`.
   Never fetch an arbitrary network URL published by another app. With playback history on, the native home screen
   adds a spacious row below recommendations and scrolls by focus between recommendations, history and apps. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
   server (with a `plex_url`), GitHub's releases (Updates), and Trakt only for explicitly connected playback history: new sources (such as Stremio) must not add network calls
