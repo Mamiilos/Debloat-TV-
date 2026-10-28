@@ -17,7 +17,9 @@ build:
 	$(PYTHON) webos/build.py --config out/effective.properties
 
 # Always rebuild: install.py reuses any FreeMyTV-webos.ipk it finds, which after a checkout is the wrong one.
-install: build
+# The build carries Developer Mode's end (scripts/devmode.py asks the TV and LG; left out when it can't tell).
+install:
+	$(MAKE) build BUILD_TAG='$(BUILD_TAG)' DEVMODE_UNTIL="$$($(PYTHON) scripts/devmode.py $(TV))"
 	$(PYTHON) webos/install.py $(TV)
 
 uninstall:
