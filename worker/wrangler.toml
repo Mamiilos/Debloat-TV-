@@ -1,6 +1,7 @@
 # The TV's backend (worker/src/index.js). Secrets are set with `npx wrangler secret put <NAME>`, never here:
 #   TV_TOKEN   the token the TV sends (also worker_token in config.properties)
-#   UKHO_KEY   UKHO Admiralty API, Discovery tier (admiraltyapi.portal.azure-api.net)
+#   UKHO_KEY   UKHO Admiralty API, Discovery tier (developer.admiralty.co.uk)
+#   ALLOWED_IPS  your home connection: its IPv4 and IPv6 /64, comma separated (a secret: not your IP in git)
 name = "freemytv-bff"
 main = "src/index.js"
 compatibility_date = "2025-06-01"
@@ -11,11 +12,9 @@ enabled = true
 
 [vars]
 STATIONS = "0451:Mersey,0461:Dee"
-# Your home connection's public IP, to refuse every other caller (empty = any).
-ALLOWED_IPS = ""
 
 # Health (each source's last success and failure) and the answers of sources that allow caching; never UKHO's.
 # The id comes from `npx wrangler kv namespace create CACHE`.
 [[kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_WITH_KV_ID"
+id = "c1db6ca58e7042b99917a72a245a4322"

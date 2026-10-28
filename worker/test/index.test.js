@@ -84,10 +84,18 @@ test('UKHO down with nothing cached: that station empty, the other still answers
   assert.equal(body.stations[1].events.length, 2);
 });
 
-test('IP allowlist', async () => {
-  env.ALLOWED_IPS = '203.0.113.7';
-  assert.equal((await authed('/v1/tides', { 'CF-Connecting-IP': '198.51.100.1' })).status, 403);
-  assert.equal((await authed('/v1/tides', { 'CF-Connecting-IP': '203.0.113.7' })).status, 200);
+test('IP allowlist: an IPv4 address and an IPv6 /64', async () => {
+  env.ALLOWED_IPS = '203.0.113.7, 2001:db8:2e84:f100::/64';
+  const from = async (ip) => (await authed('/v1/tides', { 'CF-Connecting-IP': ip })).status;
+  assert.equal(await from('203.0.113.7'), 200);
+  assert.equal(await from('203.0.113.8'), 403);
+  assert.equal(await from('2001:db8:2e84:f100:d126:ba23:ffbc:ac4b'), 200);   // another device at home
+  assert.equal(await from('2001:db8:2e84:f100::1'), 200);
+  assert.equal(await from('2001:db8:2e84:f101::1'), 403);                    // the next /64: not home
+  assert.equal(await from('2001:db8::1'), 403);
+  assert.equal(await from('not-an-ip'), 403);
+  assert.equal(await from(''), 403);
+  assert.equal((await get('/health', { 'CF-Connecting-IP': '198.51.100.1' })).status, 403);
 });
 
 test('preflight and health need no token, and health holds no secrets', async () => {

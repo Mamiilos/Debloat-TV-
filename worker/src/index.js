@@ -6,7 +6,8 @@
  *   GET /v1/tides   the next week of high and low water at STATIONS (UKHO's Admiralty API, asked every time)
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
- * Secrets: TV_TOKEN, UKHO_KEY. Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (comma separated; empty = any).
+ * Secrets: TV_TOKEN, UKHO_KEY. Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
+ * separated; empty = any).
  */
 
 const DAY = 86400000;
@@ -34,9 +35,35 @@ function sameSecret(a, b) {
   return diff === 0;
 }
 
+/** An IPv4 or IPv6 address as 32 or 128 bits (a BigInt), or null. */
+function bits(ip) {
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    const parts = ip.split('.').map(Number);
+    return parts.some((n) => n > 255) ? null : { v: 4, n: parts.reduce((a, n) => (a << 8n) | BigInt(n), 0n) };
+  }
+  if (!/^[0-9a-f:]+$/i.test(ip) || (ip.match(/::/g) || []).length > 1) return null;
+  const [head, tail] = ip.includes('::') ? ip.split('::') : [ip, null];
+  const a = head ? head.split(':') : [], b = tail ? tail.split(':') : [];
+  const groups = tail === null ? a : [...a, ...Array(8 - a.length - b.length).fill('0'), ...b];
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/i.test(g))) return null;
+  return { v: 6, n: groups.reduce((acc, g) => (acc << 16n) | BigInt(parseInt(g, 16)), 0n) };
+}
+
+/** Whether ip is in range: an address, or a CIDR range (your home's IPv6 /64: each device has its own address). */
+function inRange(ip, range) {
+  const [base, len] = range.split('/');
+  const a = bits(ip), b = bits(base);
+  if (!a || !b || a.v !== b.v) return false;
+  const size = a.v === 4 ? 32 : 128, prefix = len === undefined ? size : Number(len);
+  if (!(prefix >= 0 && prefix <= size)) return false;
+  const shift = BigInt(size - prefix);
+  return a.n >> shift === b.n >> shift;
+}
+
 function allowedIp(request, env) {
   const list = (env.ALLOWED_IPS || '').split(',').map((s) => s.trim()).filter(Boolean);
-  return !list.length || list.includes(request.headers.get('CF-Connecting-IP') || '');
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  return !list.length || list.some((range) => inRange(ip, range));
 }
 
 function stations(env) {
