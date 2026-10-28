@@ -148,6 +148,7 @@ final class MediaHistoryMonitor {
                     s.identity = identity;
                     active.put(pkg, s);
                 }
+                boolean progressed = position > s.evidence.position;
                 s.evidence.sample(position, playing, elapsed);
                 if (!title.isEmpty()) {
                     RecentMedia.Item i = new RecentMedia.Item();
@@ -156,7 +157,9 @@ final class MediaHistoryMonitor {
                     i.key = RecentMedia.hash(pkg + "|session|" + identity);
                     i.position = Math.max(0, position);
                     i.duration = Math.max(0, metadata.getLong(MediaMetadata.METADATA_KEY_DURATION));
-                    i.observed = wall;
+                    // A long-lived paused session must not keep promoting an old episode above newer playback.
+                    i.observed = progressed || playing && age >= 0 && age < 15000 ? wall
+                            : s.item == null ? s.started : s.item.observed;
                     i.available = true;
                     if (description.getIconUri() != null)
                         i.image = description.getIconUri().toString();
@@ -188,7 +191,6 @@ final class MediaHistoryMonitor {
         if (ended.size() > 12) ended.remove(0);
         if (s.item != null) {
             s.item.position = Math.max(0, s.evidence.position);
-            s.item.observed = now;
             RecentMedia.remember(context, s.item);
         }
     }

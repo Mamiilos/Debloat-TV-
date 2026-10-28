@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
+import android.database.ContentObserver;
 import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.Matrix;
@@ -19,9 +20,11 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.media.tv.TvInputManager;
+import android.media.tv.TvContract;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.FileObserver;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.text.Layout;
@@ -388,6 +391,37 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private final Runnable reloadSoon = this::reload;
+    private final ContentObserver watchObserver = new ContentObserver(handler) {
+        @Override public void onChange(boolean selfChange) {
+            if (running && watchShown()) reloadSoon();
+        }
+    };
+    private FileObserver historyObserver;
+    private boolean observingWatch;
+
+    private void observeWatch() {
+        if (!observingWatch && WatchNext.allowed(getContext())) {
+            try {
+                for (android.net.Uri uri : new android.net.Uri[] {TvContract.WatchNextPrograms.CONTENT_URI,
+                        TvContract.PreviewPrograms.CONTENT_URI, TvContract.Channels.CONTENT_URI}) {
+                    getContext().getContentResolver().registerContentObserver(uri, true, watchObserver);
+                }
+                observingWatch = true;
+            } catch (RuntimeException ignored) {
+                getContext().getContentResolver().unregisterContentObserver(watchObserver);
+            }
+        }
+        if (historyObserver == null) {
+            historyObserver = new FileObserver(getContext().getFilesDir().getPath(), FileObserver.MOVED_TO | FileObserver.CLOSE_WRITE) {
+                @Override public void onEvent(int event, String path) {
+                    if ("recent-media.json".equals(path)) handler.post(() -> {
+                        if (running && watchShown()) reloadSoon();
+                    });
+                }
+            };
+            historyObserver.startWatching();
+        }
+    }
     private static final long APPS_MAX_AGE_MS = 15 * 60_000;
     private final LauncherApps launcherApps;
     private boolean appsStale = true;
@@ -413,6 +447,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             data.refreshIfStale();
             recs.refreshIfStale();
             checkNotices();
+            observeWatch();
             if (watchShown()) reload();   // providers can publish the title just after returning Home
             updatePalette();
             checkNight(true);
@@ -518,6 +553,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         playing.start();
         checkNotices();
         hiddenNow.retainAll(Prefs.watchHidden());   // Home Settings may have shown the hidden ones again
+        observeWatch();
         if (!again) reload();
         updatePalette();
         updatePicks();
@@ -549,6 +585,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(reloadSoon);
         handler.removeCallbacks(bars);
         playing.stop();
+        if (observingWatch) {
+            getContext().getContentResolver().unregisterContentObserver(watchObserver);
+            observingWatch = false;
+        }
+        if (historyObserver != null) {
+            historyObserver.stopWatching();
+            historyObserver = null;
+        }
         data.removeListener(this);
         recs.removeListener(this);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);

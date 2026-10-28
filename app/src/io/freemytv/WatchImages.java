@@ -24,7 +24,7 @@ final class WatchImages {
     static String key(WatchNext.Item item) {
         return "tmdb:"
                 + RecentMedia.hash(
-                        "episode-v2|"
+                        "artwork-v3|"
                                 + item.title
                                 + "|"
                                 + item.seasonNumber
@@ -33,7 +33,9 @@ final class WatchImages {
                                 + "|"
                                 + item.mediaType
                                 + "|"
-                                + item.releaseYear);
+                                + item.releaseYear
+                                + "|"
+                                + item.duration);
     }
 
     /**
@@ -103,52 +105,75 @@ final class WatchImages {
     }
 
     private static String resolve(WatchNext.Item item) throws Exception {
-        boolean episode = item.seasonNumber >= 0 && item.episodeNumber > 0;
-        String type =
-                episode || item.mediaType == 3 || item.mediaType == 2 || item.mediaType == 1
-                        ? "tv"
-                        : item.mediaType == 0 ? "movie" : "";
-        if (type.isEmpty()) return null;
+        WatchTitle query =
+                item.artworkTitle != null
+                        ? item.artworkTitle
+                        : new WatchTitle(
+                                item.title,
+                                item.mediaType,
+                                item.seasonNumber,
+                                item.episodeNumber,
+                                item.releaseYear);
+        if (query.type.isEmpty() || query.title.isEmpty()) return null;
         JSONArray found =
                 Recs.catalog(
                                 "/search/"
-                                        + type
+                                        + query.type
                                         + "?query="
-                                        + URLEncoder.encode(item.title, "UTF-8")
+                                        + URLEncoder.encode(query.title, "UTF-8")
                                         + "&include_adult=false")
                         .optJSONArray("results");
         if (found == null) return null;
-        JSONObject chosen = null;
-        String chosenStill = null;
-        String wanted = TraktSync.normalize(item.title);
-        for (int n = 0; n < Math.min(10, found.length()); n++) {
-            JSONObject result = found.getJSONObject(n);
-            if (type.equals("movie")
-                    && item.releaseYear > 1900
-                    && !result.optString("release_date")
-                            .startsWith(String.valueOf(item.releaseYear))) continue;
-            String name = type.equals("tv") ? "name" : "title";
-            boolean match =
-                    wanted.equals(TraktSync.normalize(result.optString(name)))
-                            || wanted.equals(
-                                    TraktSync.normalize(result.optString("original_" + name)));
-            if (!match && n < 3) {
-                JSONObject aliases =
-                        Recs.catalog(
-                                "/" + type + "/" + result.getLong("id") + "/alternative_titles");
-                JSONArray titles = aliases.optJSONArray(type.equals("tv") ? "results" : "titles");
-                for (int a = 0; titles != null && a < titles.length(); a++)
-                    if (wanted.equals(
-                            TraktSync.normalize(titles.getJSONObject(a).optString("title")))) {
-                        match = true;
-                        break;
+        java.util.List<JSONObject> matches = new java.util.ArrayList<>();
+        String wanted = WatchTitle.normalize(query.title);
+        // Exact titles first. An unrelated result's alias request must not prevent a known match.
+        for (int pass = 0; pass < 2 && matches.isEmpty(); pass++) {
+            for (int n = 0; n < Math.min(pass == 0 ? 10 : 3, found.length()); n++) {
+                JSONObject result = found.getJSONObject(n);
+                String type = result.optString("media_type", query.type);
+                if (!type.equals("movie") && !type.equals("tv")) continue;
+                if (type.equals("movie")
+                        && query.year > 1900
+                        && !result.optString("release_date").startsWith(String.valueOf(query.year)))
+                    continue;
+                String name = type.equals("tv") ? "name" : "title";
+                boolean match =
+                        wanted.equals(WatchTitle.normalize(result.optString(name)))
+                                || wanted.equals(
+                                        WatchTitle.normalize(result.optString("original_" + name)));
+                if (!match && pass == 1) {
+                    JSONObject aliases =
+                            Recs.catalog(
+                                    "/"
+                                            + type
+                                            + "/"
+                                            + result.getLong("id")
+                                            + "/alternative_titles");
+                    JSONArray titles =
+                            aliases.optJSONArray(type.equals("tv") ? "results" : "titles");
+                    for (int a = 0; titles != null && a < titles.length(); a++) {
+                        if (wanted.equals(
+                                WatchTitle.normalize(titles.getJSONObject(a).optString("title")))) {
+                            match = true;
+                            break;
+                        }
                     }
+                }
+                if (match) {
+                    result.put("media_type", type);
+                    boolean duplicate = false;
+                    for (JSONObject old : matches)
+                        if (old.getLong("id") == result.getLong("id")
+                                && old.getString("media_type").equals(type)) duplicate = true;
+                    if (!duplicate) matches.add(result);
+                }
             }
-            if (!match) continue;
-            String still = null;
-            if (episode) {
-                // Different shows can share a title. The requested episode must exist in the chosen
-                // show.
+        }
+        JSONObject episodeShow = null;
+        String episodeStill = null;
+        if (query.numberedEpisode()) {
+            for (JSONObject result : matches) {
+                if (!result.getString("media_type").equals("tv")) continue;
                 JSONObject ep;
                 try {
                     ep =
@@ -156,9 +181,9 @@ final class WatchImages {
                                     "/tv/"
                                             + result.getLong("id")
                                             + "/season/"
-                                            + item.seasonNumber
+                                            + query.season
                                             + "/episode/"
-                                            + item.episodeNumber);
+                                            + query.episode);
                 } catch (java.io.IOException e) {
                     if ("TMDB returned HTTP 404".equals(e.getMessage())) continue;
                     throw e;
@@ -167,15 +192,23 @@ final class WatchImages {
                 if (duration > 0
                         && item.duration > 0
                         && Math.abs(duration - item.duration) > 300000) continue;
-                still = ep.optString("still_path", "");
+                if (episodeShow != null) return null;
+                episodeShow = result;
+                episodeStill = ep.optString("still_path", "");
             }
-            if (chosen != null && chosen.getLong("id") != result.getLong("id")) return null;
-            chosen = result;
-            chosenStill = still;
+            if (episodeShow != null) {
+                if (episodeStill.startsWith("/")) return episodeStill;
+                return backdrop(episodeShow);
+            }
         }
-        if (chosen == null) return null;
-        if (chosenStill != null && chosenStill.startsWith("/")) return chosenStill;
-        String backdrop = chosen.optString("backdrop_path", "");
-        return backdrop.startsWith("/") ? backdrop : null;
+        // Provider season numbering can differ from TMDB. A unique series still has useful artwork,
+        // even when that episode is unavailable. This never establishes playback identity.
+        return matches.size() == 1 ? backdrop(matches.get(0)) : null;
+    }
+
+    private static String backdrop(JSONObject result) {
+        String image = result.optString("backdrop_path", "");
+        if (!image.startsWith("/")) image = result.optString("poster_path", "");
+        return image.startsWith("/") ? image : null;
     }
 }
