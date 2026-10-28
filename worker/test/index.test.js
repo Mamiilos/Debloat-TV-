@@ -127,7 +127,13 @@ function fakeGitHub(overrides = {}) {
         : u.includes('me/b') ? { status: 'completed', conclusion: 'failure' } : null;
       return new Response(JSON.stringify({ workflow_runs: run ? [run] : [] }));
     }
-    if (u.includes('/dependabot/alerts')) return u.includes('me/a') ? new Response(JSON.stringify([{}, {}])) : new Response('', { status: 403 });
+    if (u.includes('/dependabot/alerts')) {
+      if (!u.includes('me/a')) return new Response('', { status: 403 });
+      // Two pages: 100, then 49 (a repo past one page, as GitHub sends it).
+      if (u.includes('after=p2')) return new Response(JSON.stringify(Array(49).fill({})));
+      return new Response(JSON.stringify(Array(100).fill({})),
+        { headers: { Link: '<https://api.github.com/repos/me/a/dependabot/alerts?state=open&per_page=100&after=p2>; rel="next"' } });
+    }
     if (u.includes('/search/issues')) {
       const q = decodeURIComponent(u.split('q=')[1]);
       return new Response(JSON.stringify({ total_count: q.includes('review-requested') ? 3 : q.includes('status:failure') ? 1 : 2 }));
@@ -147,7 +153,7 @@ test('dashboard: counts across recent unarchived repos, no names, cached 3 min',
   const d = JSON.parse(text);
   assert.equal(d.repos, 3);
   assert.deepEqual(d.builds, { passing: 1, failing: 1, running: 0 });   // me/c has no Actions: neither
-  assert.equal(d.alerts, 2);                                            // me/b's 403 counts as none
+  assert.equal(d.alerts, 149);                                          // both pages; me/b's 403 counts as none
   assert.equal(d.reviews, 3);
   assert.deepEqual(d.pullRequests, { open: 2, failing: 1 });
   assert.doesNotMatch(text, /me\/|"a"|old/);
@@ -169,5 +175,6 @@ test('dashboard: without GITHUB_TOKEN 503; GitHub down serves the last counts, s
   assert.equal(d.stale, true);
   assert.match(d.error, /HTTP 502/);
   assert.equal(d.reviews, 3);
+  assert.equal(d.alerts, 149);
   assert.match((await (await get('/health')).json()).sources.dashboard.error, /HTTP 502/);
 });

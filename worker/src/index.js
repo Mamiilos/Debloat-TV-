@@ -153,17 +153,31 @@ async function tides(env) {
 
 const DASHBOARD_FRESH = 3 * 60000;
 
-async function github(env, path) {
-  const r = await fetch('https://api.github.com' + path, {
+async function githubPage(env, url) {
+  const r = await fetch(url.startsWith('https://') ? url : 'https://api.github.com' + url, {
     headers: { Authorization: 'Bearer ' + env.GITHUB_TOKEN, Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'freemytv-bff' },
   });
   if (!r.ok) {
-    const e = new Error(`GitHub ${path.split('?')[0]}: HTTP ${r.status}`);
+    const e = new Error(`GitHub ${url.replace('https://api.github.com', '').split('?')[0]}: HTTP ${r.status}`);
     e.status = r.status;
     throw e;
   }
-  return r.json();
+  const next = (r.headers.get('Link') || '').match(/<([^>]+)>;\s*rel="next"/);
+  return { body: await r.json(), next: next && next[1] };
+}
+
+const github = async (env, path) => (await githubPage(env, path)).body;
+
+/** Every page of a list, following GitHub's Link: rel="next" (up to 10 pages: 1,000 alerts a repo). */
+async function githubAll(env, path) {
+  let all = [], url = path;
+  for (let i = 0; url && i < 10; i++) {
+    const page = await githubPage(env, url);
+    all = all.concat(page.body);
+    url = page.next;
+  }
+  return all;
 }
 
 const searchCount = async (env, q) => (await github(env, '/search/issues?per_page=1&q=' + encodeURIComponent(q))).total_count;
@@ -183,7 +197,7 @@ async function dashboard(env) {
     else if (run && ['success', 'skipped', 'neutral'].includes(run.conclusion)) builds.passing++;
     else if (run) builds.failing++;
     // Off, or the token can't see them: 403/404. Counted as none, not as a failure of the whole card.
-    const open = await github(env, `/repos/${r.full_name}/dependabot/alerts?state=open&per_page=100`).catch(() => []);
+    const open = await githubAll(env, `/repos/${r.full_name}/dependabot/alerts?state=open&per_page=100`).catch(() => []);
     alerts += Array.isArray(open) ? open.length : 0;
   }));
   const [reviews, mine, mineFailing] = await Promise.all([
