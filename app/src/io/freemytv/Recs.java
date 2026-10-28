@@ -178,6 +178,11 @@ final class Recs {
     private final Map<String, Poster> posters = new LinkedHashMap<>();   // narrow-card portraits, same keys as images
     private final Map<String, Backdrop> images = new LinkedHashMap<>(16, 0.75f, true);   // this hour's, built and ready to draw
     private final java.util.Set<String> pending = new java.util.HashSet<>();
+    // Only the active tab is decoded. Other tabs keep their downloaded originals on disk.
+    private Set<String> visibleImages;
+    private int imageGeneration;
+    private boolean imagesPaused;
+    private final long imageBudgetBytes;
     private volatile List<Pick> picks = new ArrayList<>();
     private volatile int period = -1;
     private volatile long listAt;
@@ -191,6 +196,8 @@ final class Recs {
 
     private Recs(Context c) {
         context = c;
+        android.app.ActivityManager am = c.getSystemService(android.app.ActivityManager.class);
+        imageBudgetBytes = (am != null && am.isLowRamDevice() ? 16L : 40L) * 1024 * 1024;
         cache = c.getSharedPreferences("recs", Context.MODE_PRIVATE);
         if (cache.getInt("version", 0) != CACHE_VERSION) cache.edit().clear().putInt("version", CACHE_VERSION).apply();
         try {
@@ -341,19 +348,67 @@ final class Recs {
     Backdrop backdrop(Pick p) {
         if (p == null || p.backdrop == null) return null;
         final String key = p.backdrop;    // the details may swap the image midway
+        final int generation;
+        final String request;
         synchronized (images) {
             Backdrop b = images.get(key);
             if (b != null) return b;
-            if (!pending.add(key)) return null;
+            if (imagesPaused || visibleImages != null && !visibleImages.contains(key)) return null;
+            generation = imageGeneration;
+            request = generation + ":" + key;
+            if (!pending.add(request)) return null;
         }
         io.execute(() -> {
             try {
-                loadImage(p);
+                synchronized (images) {
+                    if (generation != imageGeneration || imagesPaused) return;
+                }
+                loadImage(p, key, generation);
             } finally {
-                synchronized (images) { pending.remove(key); }
+                synchronized (images) { pending.remove(request); }
             }
         });
         return null;
+    }
+
+    void visibleCards(List<Pick> cards) {
+        Set<String> keys = new HashSet<>();
+        for (Pick p : cards) if (p.backdrop != null) keys.add(p.backdrop);
+        synchronized (images) {
+            if (imagesPaused || !keys.equals(visibleImages)) imageGeneration++;
+            imagesPaused = false;
+            visibleImages = keys;
+            pruneImages();
+        }
+    }
+
+    /** Called under images' lock. Keep visited tabs warm within a pixel budget, without preloading every tab. */
+    private void pruneImages() {
+        long bytes = 0;
+        for (Map.Entry<String, Backdrop> entry : images.entrySet()) bytes += imageBytes(entry.getKey(), entry.getValue());
+        int limit = light ? 12 : 4;
+        java.util.Iterator<Map.Entry<String, Backdrop>> it = images.entrySet().iterator();
+        while (it.hasNext() && (bytes > imageBudgetBytes || images.size() > limit)) {
+            Map.Entry<String, Backdrop> entry = it.next();
+            // Visible cards take priority, even on a small-memory TV with the maximum card count selected.
+            if (visibleImages != null && visibleImages.contains(entry.getKey())) continue;
+            bytes -= imageBytes(entry.getKey(), entry.getValue());
+            posters.remove(entry.getKey());
+            it.remove();
+        }
+    }
+
+    private long imageBytes(String key, Backdrop backdrop) {
+        Poster poster = posters.get(key);
+        return backdrop.pixelBytes() + Backdrop.bitmapBytes(poster == null ? null : poster.bitmap);
+    }
+
+    void pauseImages() {
+        synchronized (images) {
+            imagesPaused = true;
+            imageGeneration++;
+        }
+        trim();
     }
 
     private boolean hasImage(Pick p) {
@@ -429,6 +484,7 @@ final class Recs {
         if (value == light) return;
         light = value;
         synchronized (images) {
+            imageGeneration++;
             images.clear();
             posters.clear();
         }
@@ -1054,31 +1110,35 @@ final class Recs {
     }
 
     /** Reads the photo (≥ the UI's width) and builds the backdrop (Backdrop: cards plus frosted and glass versions). */
-    private void loadImage(Pick p) {
+    private void loadImage(Pick p, String key, int generation) {
         synchronized (images) {
-            if (images.containsKey(p.backdrop)) return;
+            if (images.containsKey(key) || generation != imageGeneration || imagesPaused) return;
         }
         File f = imageFile(p);
         try {
             download(p);
+            synchronized (images) {
+                if (generation != imageGeneration || imagesPaused || !key.equals(p.backdrop)) return;
+            }
+            boolean forLight = light;
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(f.getPath(), bounds);
             BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inSampleSize = 1;
-            while (bounds.outWidth / (opts.inSampleSize * 2) >= Backdrop.W) opts.inSampleSize *= 2;
+            int width = forLight ? Backdrop.WIDE_W : Backdrop.W;
+            int height = Math.round(width * (float) Backdrop.H / Backdrop.W);
+            opts.inSampleSize = ImageSizing.sample(bounds.outWidth, bounds.outHeight, width, height, 8_000_000);
             Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
             if (b == null) throw new IOException("unreadable image");
-            AppLog.w("backdrop \u201c" + p.title + "\u201d: " + bounds.outWidth + "×" + bounds.outHeight + " → " + Backdrop.W + "×" + Backdrop.H);
-            boolean forLight = light;
+            AppLog.w("backdrop \u201c" + p.title + "\u201d: " + bounds.outWidth + "×" + bounds.outHeight + " → " + width + "×" + height);
             Backdrop backdrop = Backdrop.make(b, forLight);
             if (forLight != light) return;   // the design changed midway: this one is stale
             Poster poster = forLight ? loadPoster(p) : null;
             synchronized (images) {
-                images.put(p.backdrop, backdrop);
-                if (poster != null) posters.put(p.backdrop, poster);
-                while (images.size() > (forLight ? Prefs.cards() + 7 : 4)) images.remove(images.keySet().iterator().next());
-                posters.keySet().retainAll(images.keySet());
+                if (generation != imageGeneration || imagesPaused || !key.equals(p.backdrop)) return;
+                images.put(key, backdrop);
+                if (poster != null) posters.put(key, poster);
+                pruneImages();
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
@@ -1110,12 +1170,11 @@ final class Recs {
     }
 
     void trim() {
-        // Explore's picks stay: the home screen opens on that tab, so its cards are never gray when you come back.
-        java.util.Set<String> keep = new java.util.HashSet<>();
-        for (Pick p : now(null)) if (p.backdrop != null) keep.add(p.backdrop);
         synchronized (images) {
-            images.keySet().retainAll(keep);
-            posters.keySet().retainAll(keep);
+            // Keep the actual visible tab, including Movies/Shows, so returning does not flash gray cards.
+            if (visibleImages == null) return;
+            images.keySet().retainAll(visibleImages);
+            posters.keySet().retainAll(visibleImages);
         }
     }
 

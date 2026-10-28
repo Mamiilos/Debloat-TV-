@@ -25,6 +25,10 @@ final class Shadows {
     private final int[] sx = new int[4], sy = new int[4];
     boolean dither;
 
+    void clear() {
+        cache.clear();
+    }
+
     /** Draws `shape` (radius `r`) with `paint`, whose BlurMaskFilter was made with radius `blur`. */
     void draw(Canvas c, RectF shape, float r, float blur, Paint paint) {
         if (!Ui.LEGACY) {

@@ -151,6 +151,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int tab, topIndex, cardIndex;
     private int widgetIndex;    // with TalkBack on, the drawer's weather (0) or quotes (1) card can take the focus
     private List<Recs.Pick> cards = new ArrayList<>();
+    private long cardsWaitAt;
+    private final Runnable cardsReady = () -> { if (this.running) { wake(); updateCards(); } };
     // The three tabs, then the round buttons at the top right (up to HomeApps.MAX_TOP).
     private final Spring[] topFocus = new Spring[3 + HomeApps.MAX_TOP];
     private final RectF[] topRects = new RectF[3 + HomeApps.MAX_TOP];
@@ -583,6 +585,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Choreographer.getInstance().removeFrameCallback(this);
         handler.removeCallbacks(tick);
         handler.removeCallbacks(reloadSoon);
+        handler.removeCallbacks(cardsReady);
+        cardsWaitAt = 0;
         handler.removeCallbacks(bars);
         playing.stop();
         if (observingWatch) {
@@ -595,6 +599,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         data.removeListener(this);
         recs.removeListener(this);
+        recs.pauseImages();
+        trimMemory();
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
     }
 
@@ -606,6 +612,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         click.release();
         watchArt.close();   // its thread is shared: nothing is left running for this view
+    }
+
+    void trimMemory() {
+        recs.trim();
+        watchArt.retain(watching, Math.max(0, Math.round(watchScroll.value) - 1), mixedMode() ? 6 : 5);
+        shadows.clear();
+        heroDirty = true;
+        wake();
     }
 
     /**
@@ -728,7 +742,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         k = w / 1920f;
         screen.set(0, 0, w, h);
         scene.setSize(w, h);
-        watchArt.setScale(k);
+        watchArt.setScale(k, mixedMode());
         makePaints();
         gridLabels = null;
         clockMinute = -1;
@@ -885,10 +899,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (clockMode()) heroLayer.invalidate();
         }
 
-        // Busy: something is moving, or the sheet or the drawer is open.
+        // An open, settled drawer/sheet needs no vsync loop. Input and data updates call wake().
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
-                || homeMoving || menuMoving || sheetMoving || toastFading || heroFading || bgFading || nightMoving || tintMoving || sheetOpen
-                || sheet.value > 0.001f || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
+                || homeMoving || menuMoving || sheetMoving || toastFading || heroFading || bgFading || nightMoving || tintMoving
+                || toast != null || !toasts.isEmpty();
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
         else Choreographer.getInstance().postFrameCallbackDelayed(this, 1000);
@@ -1705,14 +1719,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float r = r0 * s;
         // Shadow at the resting icon size, enlarged by the transform (so the blur stays cached): short at rest, deep
         // and lower when focused.
-        c.save();
-        c.translate(cx, cy);
-        c.scale(s, s);
-        tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
-        tmp.offset(0, (4 + 14 * f + 6 * l) * k);
-        shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.3f) + tone(0.18f, 0.3f) * fc + 0.14f * Ui.clamp(l)));
-        shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
-        c.restore();
+        if (!Ui.LEGACY || fc > 0.01f || l > 0.01f) {
+            c.save();
+            c.translate(cx, cy);
+            c.scale(s, s);
+            tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+            tmp.offset(0, (4 + 14 * f + 6 * l) * k);
+            float alpha = tone(0.14f, 0.3f) + tone(0.18f, 0.3f) * fc + 0.14f * Ui.clamp(l);
+            shadowDeep.setColor(Ui.alpha(0xFF000000, alpha * (Ui.LEGACY ? Math.max(fc, Ui.clamp(l)) : 1)));
+            shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
+            c.restore();
+        }
         int[] style = TILE_STYLE.get(it.key);
         if (it.logo != null && style != null) {
             if (tileShaders.length != shelf.size() || tileShaderH != bh) {
@@ -3311,6 +3328,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void updateCards() {
         cardSlots = Prefs.cards();
         if (!picksMode()) {
+            handler.removeCallbacks(cardsReady);
+            cardsWaitAt = 0;
+            recs.visibleCards(java.util.Collections.emptyList());
             // No picks on screen: no cards, and the plain gradient behind, or with the clock your photo if there is one.
             if (!cards.isEmpty()) cards = new ArrayList<>();
             boolean own = clockMode() && Photos.on(getContext());
@@ -3320,20 +3340,38 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
-        if (!samePicks(list, cards)) {
+        boolean changed = !samePicks(list, cards);
+        if (changed && !cards.isEmpty() && !list.isEmpty()) {
+            // Keep the previous row complete while the next tab decodes. Titles and pictures switch together.
+            // Both rows stay pinned during this short handoff; stale tab requests are still cancelled by Recs.
+            List<Recs.Pick> visible = new ArrayList<>(cards);
+            visible.addAll(list);
+            recs.visibleCards(visible);
+            boolean ready = true;
+            for (int i = 0; i < Math.min(3, list.size()); i++)
+                if (recs.backdrop(list.get(i)) == null) ready = false;
+            if (!ready) {
+                long now = SystemClock.uptimeMillis();
+                if (cardsWaitAt == 0) cardsWaitAt = now;
+                long remaining = 3000 - (now - cardsWaitAt);
+                if (remaining > 0) {
+                    handler.removeCallbacks(cardsReady);
+                    handler.postDelayed(cardsReady, remaining);
+                    return;
+                }
+            }
+        }
+        handler.removeCallbacks(cardsReady);
+        cardsWaitAt = 0;
+        recs.visibleCards(list);
+        if (changed) {
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
             if (zone == Z_CARDS && list.isEmpty()) zone = Z_SHELF;
             retarget(false);   // the wide card and the scroll follow the clamped index, whatever has the focus
         }
-        // This tab's cards, then the first three of the others (what shows at first): switching tabs is quick, and
-        // the images stay under Recs's cap in memory.
+        // Decode this tab only. Other tabs' compressed originals are already cached on disk.
         for (Recs.Pick p : list) recs.backdrop(p);
-        for (int t = 0; t < TAB_KIND.length; t++) {
-            if (t == tab) continue;
-            List<Recs.Pick> other = recs.now(TAB_KIND[t]);
-            for (int i = 0; i < Math.min(3, other.size()); i++) recs.backdrop(other.get(i));
-        }
         // Picks bring their own background; without them (no TMDB key), your photo if there is one.
         boolean own = !picksOn() && Photos.on(getContext());
         Backdrop b = own ? Photos.backdrop(getContext(), ownReady) : cards.isEmpty() ? null : recs.backdrop(cards.get(0));
@@ -3390,6 +3428,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         topMode = mode;
         historyRow = history;
+        watchArt.setScale(k, mixedMode());
         if (modeChanged) closeMenu(false);
         watching = list;
         watchTitles = null;
@@ -3507,18 +3546,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void drawWatchCard(Canvas c, int i) {
         watchRect(i, cell);
         if (cell.left > w || cell.right <= watchLeftEdge()) return;   // scrolled off screen
+        if (c.quickReject(cell.left - 96 * k, cell.top - 96 * k, cell.right + 96 * k,
+                cell.bottom + 100 * k, Canvas.EdgeType.AA)) return;
         WatchNext.Item it = watching.get(i);
         float v = watchFocus[i].value, f = Ui.clamp(v), s = 1 + 0.05f * v;
         float bw = cell.width(), bh = cell.height(), r0 = 18 * k, r = r0 * s;
         float cx = cell.centerX(), cy = cell.centerY() - 6 * k * v, textLeft = cell.left, textTop = cell.bottom;
-        c.save();
-        c.translate(cx, cy);
-        c.scale(s, s);
-        tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
-        tmp.offset(0, (10 + 14 * f) * k);
-        shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f));
-        shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
-        c.restore();
+        // Older GPUs draw a nine-slice shadow for every card. Reserve it for focus instead of shading
+        // the entire row again during each key press; the image, corner and focus sheen remain unchanged.
+        if (!Ui.LEGACY || f > 0.01f) {
+            c.save();
+            c.translate(cx, cy);
+            c.scale(s, s);
+            tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+            tmp.offset(0, (10 + 14 * f) * k);
+            float alpha = tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f;
+            shadowDeep.setColor(Ui.alpha(0xFF000000, alpha * (Ui.LEGACY ? f : 1)));
+            shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
+            c.restore();
+        }
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
         Bitmap img = watchArt.get(it);
         if (img != null) {
@@ -3806,6 +3852,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void selectTab(int index) {
         if (index == tab) return;
+        cardsWaitAt = 0;
+        handler.removeCallbacks(cardsReady);
         tab = index;
         // A tab opens at its first pick, its row at the start: at once, as sliding back would first show the new
         // tab's cards scrolled to where the last tab was.
@@ -4000,20 +4048,27 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void drawLightCard(Canvas c, int i) {
         RectF base = cardRects[i];
         if (base.right < 0 || base.left > getWidth()) return;   // slid off screen
+        if (c.quickReject(base.left - 96 * k, base.top - 96 * k, base.right + 96 * k,
+                base.bottom + 100 * k, Canvas.EdgeType.AA)) return;
         Recs.Pick p = i < cards.size() ? cards.get(i) : null;
         float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + 0.05f * v;
         float bw = base.width(), bh = base.height(), r0 = 18 * k;
         float cx = base.centerX(), cy = base.centerY() - 6 * k * v;
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
         float r = r0 * s;
-        c.save();
-        c.translate(cx, cy);
-        c.scale(s, s);
-        tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
-        tmp.offset(0, (10 + 14 * f) * k);
-        shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f));
-        shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
-        c.restore();
+        // Older GPUs draw a nine-slice shadow for every card. Reserve it for focus instead of shading
+        // the entire row again during each key press; the image, corner and focus sheen remain unchanged.
+        if (!Ui.LEGACY || f > 0.01f) {
+            c.save();
+            c.translate(cx, cy);
+            c.scale(s, s);
+            tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+            tmp.offset(0, (10 + 14 * f) * k);
+            float alpha = tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f;
+            shadowDeep.setColor(Ui.alpha(0xFF000000, alpha * (Ui.LEGACY ? f : 1)));
+            shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
+            c.restore();
+        }
         Backdrop b = p == null ? null : recs.backdrop(p);
         Bitmap img = b == null ? null : b.wide;
         Recs.Poster poster = recs.poster(p);

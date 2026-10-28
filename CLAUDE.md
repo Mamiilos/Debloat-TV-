@@ -261,6 +261,18 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   and `_height`, `ro.config.low_ram`). There every pixel and every MB counts: `Backdrop` builds its images at the UI's
   size (and the picks use TMDB's w1280), and the shelf logos have a copy at the resting size and one at the focused
   size, so both draw pixel for pixel.
+  Recommendation decoding follows the visible tab (`Recs.visibleCards`). Visited tabs stay warm within a 40 MiB pixel
+  budget (16 MiB on Android low-RAM devices), with at most 12 entries; visible cards take priority over that budget.
+  Unvisited tabs keep compressed originals on disk. Pause/memory pressure retains only the current tab.
+  Generation checks discard work from an older tab or a paused home. The light
+  design builds its scratch bitmap at the wide card's width, not full-screen size. WatchArt uses focused card sizes,
+  GPU-backed final images and a 12-entry cache; memory pressure trims outside the visible window. Never recycle a
+  bitmap still referenced by a display list. ImageSizing bounds unusual provider dimensions before decoding; its
+  tests run with `tools/test-playback.sh`. Settled drawers/sheets use the idle tick rather than a continuous vsync loop.
+  On the legacy rendering path, card/app shadows follow focus or reorder lift; unfocused items skip the nine-slice
+  shadow draw. Keep the artwork, corner treatment and focus transitions intact.
+  Tab changes retain the old recommendation row until the first three incoming images are ready, swapping titles and
+  artwork together; a three-second fallback prevents unavailable artwork from holding navigation indefinitely.
 - TMDB's API is reached at `api.tmdb.org`, TMDB's own mirror of `api.themoviedb.org` on the images' domain
   (`image.tmdb.org`): some ISPs block the other name (Jio in India, #327).
 - `HomeMode` runs every switch as a background job (`ModeJob`) in the main process; the UI is in the `:home`

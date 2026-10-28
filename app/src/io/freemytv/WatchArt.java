@@ -46,6 +46,7 @@ final class WatchArt {
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
     private volatile boolean closed;
     private volatile int pw = W, ph = H;   // the pictures' size in pixels
+    private volatile int generation;
     private static final long RETRY_MS = 10 * 60_000L;
     private final Set<String> pending = new HashSet<>();
     private final Map<String, Long> failed = new HashMap<>();
@@ -53,8 +54,9 @@ final class WatchArt {
     private final Map<Bitmap, BitmapShader> shaders = new HashMap<>();   // for the rounded corners, made with the picture
     private final Map<String, Bitmap> cache = new LinkedHashMap<String, Bitmap>(16, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<String, Bitmap> eldest) {
-            if (size() <= 24) return false;   // images plus the app banners used while optional catalog art loads
+            if (size() <= 12) return false;   // visible cards, adjacent cards and shared app banners
             shaders.remove(eldest.getValue());
+            colors.remove(eldest.getKey());
             return true;
         }
     };
@@ -84,14 +86,19 @@ final class WatchArt {
     }
 
     /** The UI's scale (width / 1920): pictures already made at another size are made again. */
-    void setScale(float k) {
-        int width = Math.max(1, Math.round(W * k)), height = Math.max(1, Math.round(H * k));
+    void setScale(float k, boolean compact) {
+        float scale = Math.min(1, k) * 1.05f;
+        int width = Math.max(1, Math.round((compact ? 400 : W) * scale));
+        int height = Math.max(1, Math.round((compact ? 225 : H) * scale));
         if (width == pw && height == ph) return;
         pw = width;
         ph = height;
         synchronized (cache) {
+            generation++;
             cache.clear();
             shaders.clear();
+            pending.clear();
+            colors.clear();
         }
     }
 
@@ -121,6 +128,32 @@ final class WatchArt {
             cache.clear();
             shaders.clear();
             colors.clear();
+            failed.clear();
+            pending.clear();
+        }
+    }
+
+    /** Drop pictures outside the visible window; displayed frames keep their references. */
+    void retain(java.util.List<WatchNext.Item> items, int from, int count) {
+        Set<String> keep = new HashSet<>();
+        for (int i = Math.max(0, from); i < Math.min(items.size(), from + count); i++) {
+            WatchNext.Item item = items.get(i);
+            keep.add(item.pictureKey);
+            keep.add(item.bannerKey);
+            keep.add(item.catalogKey);
+        }
+        synchronized (cache) {
+            generation++;
+            pending.clear();
+            java.util.Iterator<Map.Entry<String, Bitmap>> it = cache.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String, Bitmap> entry = it.next();
+                if (!keep.contains(entry.getKey())) {
+                    shaders.remove(entry.getValue());
+                    colors.remove(entry.getKey());
+                    it.remove();
+                }
+            }
         }
     }
 
@@ -137,34 +170,45 @@ final class WatchArt {
 
     private Bitmap fetch(String key, Uri uri, String pkg, WatchNext.Item catalog) {
         if (closed) return null;
+        final int requestedGeneration = generation;
+        final String request = requestedGeneration + ":" + key;
         synchronized (cache) {
             Bitmap b = cache.get(key);
-            if (b != null || pending.contains(key)) return b;
+            if (b != null || pending.contains(request)) return b;
             Long at = failed.get(key);
             if (at != null && System.currentTimeMillis() - at < RETRY_MS) return null;
-            pending.add(key);
+            pending.add(request);
         }
         IO.execute(() -> {
-            if (closed) return;
+            if (closed || requestedGeneration != generation) {
+                synchronized (cache) { pending.remove(request); }
+                return;
+            }
             Bitmap b = null;
+            Integer color = null;
+            BitmapShader shader = null;
             try {
                 if (catalog != null) {
                     byte[] bytes = WatchImages.load(app, catalog);
                     if (bytes != null) b = decode(bytes);
                 } else b = uri == null ? banner(pkg) : load(uri);
+                color = b == null ? null : colorOf(b);
+                // Work out the tint first, then keep only GPU-backed pixels for drawing.
+                if (b != null) b = Backdrop.gpu(b);
+                shader = b == null ? null : new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
             } catch (Exception | OutOfMemoryError e) {
+                b = null;
                 AppLog.w("continue watching picture: " + e.getMessage());
             }
-            Integer color = b == null ? null : colorOf(b);
-            BitmapShader shader = b == null ? null : new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
             synchronized (cache) {
-                pending.remove(key);
-                if (closed) return;
+                pending.remove(request);
+                if (closed || requestedGeneration != generation) return;
                 if (b != null) {
                     shaders.put(b, shader);
                     cache.put(key, b);
                     colors.put(key, color);
                 } else {
+                    if (failed.size() >= 128) failed.clear();
                     failed.put(key, System.currentTimeMillis());
                 }
             }
@@ -184,11 +228,7 @@ final class WatchArt {
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("unreadable picture");
         int cw = pw, ch = ph, bw = bounds.outWidth, bh = bounds.outHeight;
         BitmapFactory.Options opts = new BitmapFactory.Options();
-        opts.inSampleSize = 1;
-        // Halved while both sides stay at least the card's, or while it's still too many pixels (either side too big).
-        for (int s = 1; bw / (s * 2) >= cw && bh / (s * 2) >= ch || (long) (bw / s) * (bh / s) > MAX_PIXELS; s *= 2) {
-            opts.inSampleSize = s * 2;
-        }
+        opts.inSampleSize = ImageSizing.sample(bw, bh, cw, ch, MAX_PIXELS);
         Bitmap src = BitmapFactory.decodeByteArray(data, 0, data.length, opts);
         if (src == null) throw new IOException("unreadable picture");
         // Centre crop to 16:9.
