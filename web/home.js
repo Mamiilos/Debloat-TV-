@@ -655,6 +655,14 @@
     var sun = el('div', 'sun', card);
     if (w.sunrise) { var a = el('span', '', sun); sym('sunrise', a); a.appendChild(document.createTextNode(trf('Sunrise {time}', {time: Data.time(w.sunrise)}))); }
     if (w.sunset) { var b = el('span', '', sun); sym('sunset', b); b.appendChild(document.createTextNode(trf('Sunset {time}', {time: Data.time(w.sunset)}))); }
+    // The next high water at each station (the Worker's tides), where it fits: not beside the prices' card.
+    var highs = Data.tideHighs();
+    if (highs.length) {
+      var parts = [];
+      for (var i2 = 0; i2 < highs.length; i2++) parts.push(highs[i2].name + ' ' + Data.time(highs[i2].at));
+      var tide = el('span', 'tide', sun, tr('High tide') + ' · ' + parts.join(' · '));
+      if (sun.offsetWidth > parseFloat(card.style.width) - 422 - 30) sun.removeChild(tide);
+    }
   }
 
   function renderPrices(card, coins) {

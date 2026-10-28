@@ -1,0 +1,20 @@
+# The TV's backend (worker/src/index.js). Secrets are set with `npx wrangler secret put <NAME>`, never here:
+#   TV_TOKEN   the token the TV sends (also worker_token in config.properties)
+#   UKHO_KEY   UKHO Admiralty API, Discovery tier (admiraltyapi.portal.azure-api.net)
+name = "freemytv-bff"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[observability]
+enabled = true
+
+[vars]
+STATIONS = "0451:Mersey,0461:Dee"
+# Your home connection's public IP, to refuse every other caller (empty = any).
+ALLOWED_IPS = ""
+
+# The id comes from `npx wrangler kv namespace create CACHE`.
+[[kv_namespaces]]
+binding = "CACHE"
+id = "REPLACE_WITH_KV_ID"

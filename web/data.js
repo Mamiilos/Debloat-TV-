@@ -99,7 +99,7 @@ var Data = (function () {
     x.onreadystatechange = function () {
       if (x.readyState !== 4 || over) return;
       over = true;
-      if (x.status !== 200) { done(new Error(x.status === 401 ? 'TMDB rejected the key' : 'HTTP ' + x.status)); return; }
+      if (x.status !== 200) { done(new Error(x.status === 401 && /tmdb/.test(url) ? 'TMDB rejected the key' : 'HTTP ' + x.status)); return; }
       var json;
       try { json = JSON.parse(x.responseText); } catch (e) { done(e); return; }
       done(null, json);
@@ -275,6 +275,47 @@ var Data = (function () {
         changed();
       });
     })(0);
+  }
+
+  // MARK: - Tides (the Worker, worker/: UKHO's Admiralty predictions)
+
+  var WORKER = CONFIG.worker || {};
+  var tides = stored('tides') || {}, tidesAt = tides.at || 0, fetchingTides = false;
+
+  function refreshTides() {
+    var now = Date.now();
+    if (!WORKER.url || !WORKER.tides || fetchingTides || (now - tidesAt < 30 * 60000 && now >= tidesAt)) return;
+    fetchingTides = true;
+    get(WORKER.url.replace(/\/+$/, '') + '/v1/tides', {Authorization: 'Bearer ' + WORKER.token}, function (err, body) {
+      fetchingTides = false;
+      if (!err && !(body && body.stations)) err = new Error('no tides');
+      noteFetch('tides', err);
+      if (err) return;
+      tidesAt = Date.now();
+      tides = {at: tidesAt, stations: body.stations};
+      store('tides', tides);
+      changed();
+    });
+  }
+
+  /** The next high water at each station, [{name, at}] (predictions: a day-old answer still holds). */
+  function nextHighs() {
+    var out = [], now = Date.now(), list = tides.stations || [];
+    for (var i = 0; i < list.length; i++) {
+      var events = list[i].events || [];
+      for (var k = 0; k < events.length; k++) {
+        var at = Date.parse(events[k].at);
+        if (events[k].type === 'high' && at > now) { out.push({name: list[i].name, at: at}); break; }
+      }
+    }
+    return out;
+  }
+
+  /** A station the Worker could only answer from its cache (UKHO down): {at, error}, as noteFetch keeps them. */
+  function tidesFailure() {
+    var list = tides.stations || [];
+    for (var i = 0; i < list.length; i++) if (list[i].stale && list[i].error) return {at: tidesAt, error: list[i].name + ': ' + list[i].error};
+    return failures.tides;
   }
 
   // MARK: - Picks (TMDB)
@@ -613,7 +654,8 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); },
+    tideHighs: nextHighs,
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     findCity: findCity,
     /** Another city picked: its weather now (none shown until it comes). */
@@ -628,6 +670,7 @@ var Data = (function () {
       var out = [{name: tr('Weather'), at: weatherAt, failed: failures.weather}];
       if (activeCoins().length) out.push({name: tr('Crypto'), at: pricesAt, failed: failures.prices});
       if (KEY) out.push({name: tr('Picks'), at: listAt, failed: failures.picks});
+      if (WORKER.url && WORKER.tides) out.push({name: tr('Tides'), at: tidesAt, failed: tidesFailure()});
       for (var i = 0; i < out.length; i++) if (out[i].failed && out[i].failed.at < out[i].at) out[i].failed = null;
       return out;
     },

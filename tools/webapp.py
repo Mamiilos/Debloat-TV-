@@ -66,6 +66,9 @@ def read_config(path):
         'hideApps': [s.strip() for s in values.get('hide_apps', '').split(',') if s.strip()],
         'shelfApps': [s.strip() for s in values.get('shelf_apps', '').split(',') if s.strip()],
         'drawerFirst': values.get('drawer_first', 'false').lower() == 'true',
+        # The Worker (worker/): its address and the TV's read-only token; tides=true shows UKHO's on the weather card.
+        'worker': {'url': values.get('worker_url', ''), 'token': values.get('worker_token', ''),
+                   'tides': values.get('tides', 'false').lower() == 'true'},
         # What was built, for About this TV (written by scripts/tvconfig.py; empty otherwise).
         'build': {'commit': values.get('build_commit', ''), 'tag': values.get('build_tag', ''),
                   'settings': values.get('settings_hash', ''), 'devModeUntil': int(values.get('devmode_until', '0') or 0)},
