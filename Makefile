@@ -19,7 +19,8 @@ build:
 # Always rebuild: install.py reuses any FreeMyTV-webos.ipk it finds, which after a checkout is the wrong one.
 # The build carries Developer Mode's end (scripts/devmode.py asks the TV and LG; left out when it can't tell).
 install:
-	$(MAKE) build BUILD_TAG='$(BUILD_TAG)' DEVMODE_UNTIL="$$($(PYTHON) scripts/devmode.py $(TV))"
+	@mkdir -p out; $(PYTHON) scripts/devmode.py $(TV) > out/devmode-until || true
+	$(MAKE) build BUILD_TAG='$(BUILD_TAG)' DEVMODE_UNTIL="$$(cat out/devmode-until 2>/dev/null)"
 	$(PYTHON) webos/install.py $(TV)
 
 uninstall:
@@ -29,13 +30,14 @@ config-hash:
 	@$(PYTHON) scripts/tvconfig.py hash
 
 # Refuses a dirty tree, so the tag is exactly what went on the TV. The tag's name is chosen first (About this TV shows
-# it), and it's made only after the install succeeded.
+# it), and it's made only after the install succeeded. The tagging stays off the $(MAKE) line: make runs that line even
+# under -n, so a dry run would tag.
 release:
 	@if [ -n "$$(git status --porcelain)" ]; then \
 		echo 'Uncommitted changes: commit or stash them first, so the tag matches what goes on the TV.'; exit 1; fi
-	@hash=$$($(PYTHON) scripts/tvconfig.py hash) || exit 1; \
-	day=$$(date +%Y-%m-%d); n=1; \
+	@mkdir -p out; day=$$(date +%Y-%m-%d); n=1; \
 	while git rev-parse -q --verify "refs/tags/tv-$$day-$$n" >/dev/null; do n=$$((n + 1)); done; \
-	tag="tv-$$day-$$n"; \
-	$(MAKE) install TV=$(TV) BUILD_TAG=$$tag && \
-	git tag -a "$$tag" -m "Installed on $(TV)" -m "config-sha256: $$hash" && echo "Tagged $$tag (config $$hash)"
+	echo "tv-$$day-$$n" > out/release-tag
+	$(MAKE) install TV=$(TV) BUILD_TAG="$$(cat out/release-tag 2>/dev/null)"
+	@tag=$$(cat out/release-tag); hash=$$($(PYTHON) scripts/tvconfig.py hash) || exit 1; \
+	git tag -a "$$tag" -m "Installed on $(TV)" -m "config-sha256: $$hash" && rm out/release-tag && echo "Tagged $$tag (config $$hash)"
