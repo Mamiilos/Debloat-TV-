@@ -108,6 +108,10 @@ var Data = (function () {
     x.send();
   }
 
+  /** The last failure per source, for About this TV; a success clears it. */
+  var failures = {};
+  function noteFetch(source, err) { failures[source] = err ? {at: Date.now(), error: err.message || String(err)} : null; }
+
   var listeners = [];
   function changed() { for (var i = 0; i < listeners.length; i++) listeners[i](); }
 
@@ -166,6 +170,7 @@ var Data = (function () {
     get(url, {}, function (err, body) {
       fetchingWeather = false;
       if (at !== place()) { refreshWeather(); return; }   // another city was picked meanwhile
+      noteFetch('weather', err);
       if (err) return;
       weather = parseWeather(body);
       weatherAt = Date.now();
@@ -260,10 +265,11 @@ var Data = (function () {
         if (!err && QUOTE !== 'USDT' && halted(body)) { fetchingPrices = false; CURRENCY = 'USD'; QUOTE = 'USDT'; refreshPrices(); return; }
         if (err || !parsePrices(body)) {
           if (h + 1 < hosts.length && !(err && err.message === 'HTTP 400')) next(h + 1, err && err.message === 'HTTP 451');
-          else fetchingPrices = false;
+          else { fetchingPrices = false; noteFetch('prices', err || new Error('no prices')); }
           return;
         }
         fetchingPrices = false;
+        noteFetch('prices');
         pricesAt = Date.now();
         store('prices', {quote: QUOTE, body: body, at: pricesAt});
         changed();
@@ -555,6 +561,7 @@ var Data = (function () {
     stamp = st;
     function finish(err) {
       fetchingRecs = false;
+      noteFetch('picks', err);
       if (err) { recsError = err.message; failedAt = Date.now(); } else { recsError = ''; failedAt = 0; }
       saveRecs();
       changed();
@@ -616,6 +623,14 @@ var Data = (function () {
     prices: prices,
     changes: changes,
     get pricesAt() { return pricesAt; },
+    /** Each source that's on: its name, when it last came, and its last failure if that's newer ({at, error}). */
+    health: function () {
+      var out = [{name: tr('Weather'), at: weatherAt, failed: failures.weather}];
+      if (activeCoins().length) out.push({name: tr('Crypto'), at: pricesAt, failed: failures.prices});
+      if (KEY) out.push({name: tr('Picks'), at: listAt, failed: failures.picks});
+      for (var i = 0; i < out.length; i++) if (out[i].failed && out[i].failed.at < out[i].at) out[i].failed = null;
+      return out;
+    },
     activeCoins: activeCoins,
     hasKey: function () { return !!KEY; },
     checkKey: checkKey,

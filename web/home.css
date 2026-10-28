@@ -598,3 +598,6 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* Tizen 2 and 1 GB TVs (see tv.js): no shadows or animations; their GPUs can't keep up while the focus moves. */
 .lite * { box-shadow: none !important; -webkit-transition: none !important; transition: none !important; }
+/* About this TV also lists the build and each source (diagnostics): shorter rows, higher up, so all of them fit. */
+#about .box { top: 60px; }
+#about .row { height: 58px; line-height: 58px; margin-bottom: 6px; }

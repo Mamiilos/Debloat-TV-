@@ -2,12 +2,14 @@
 """The LG TV's settings: tv.properties (tracked) with the secrets from config.properties (ignored).
 
     python3 scripts/tvconfig.py merge   # writes out/effective.properties for webos/build.py --config
+                                        # (with BUILD_TAG / DEVMODE_UNTIL from the environment, for About this TV)
     python3 scripts/tvconfig.py hash    # SHA-256 of the effective settings, secrets left out
 
 The hash is over the parsed key=value pairs, sorted, so comments and spacing don't change it.
 """
 import hashlib
 import os
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,10 +49,19 @@ def digest(values):
     return hashlib.sha256(''.join('%s=%s\n' % kv for kv in public).encode('utf-8')).hexdigest()
 
 
+def build_info(values):
+    """What About this TV shows of the build: the commit (-dirty when uncommitted), the tag it's released as, the hash."""
+    commit = subprocess.run(['git', 'describe', '--always', '--dirty', '--exclude', '*'], cwd=ROOT,
+                            capture_output=True, text=True).stdout.strip()
+    return {'build_commit': commit, 'build_tag': os.environ.get('BUILD_TAG', ''), 'settings_hash': digest(values),
+            'devmode_until': os.environ.get('DEVMODE_UNTIL', '')}
+
+
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ''
     values = settings()
     if command == 'merge':
+        values.update(build_info(values))
         os.makedirs(os.path.dirname(OUT), exist_ok=True)
         fd = os.open(OUT, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, 'w', encoding='utf-8') as f:

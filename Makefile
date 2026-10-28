@@ -13,7 +13,7 @@ PYTHON ?= python3
 .PHONY: build install uninstall release config-hash
 
 build:
-	$(PYTHON) scripts/tvconfig.py merge >/dev/null
+	BUILD_TAG='$(BUILD_TAG)' DEVMODE_UNTIL='$(DEVMODE_UNTIL)' $(PYTHON) scripts/tvconfig.py merge >/dev/null
 	$(PYTHON) webos/build.py --config out/effective.properties
 
 # Always rebuild: install.py reuses any FreeMyTV-webos.ipk it finds, which after a checkout is the wrong one.
@@ -26,12 +26,14 @@ uninstall:
 config-hash:
 	@$(PYTHON) scripts/tvconfig.py hash
 
-# Refuses a dirty tree, so the tag is exactly what went on the TV; tags only after the install succeeded.
+# Refuses a dirty tree, so the tag is exactly what went on the TV. The tag's name is chosen first (About this TV shows
+# it), and it's made only after the install succeeded.
 release:
 	@if [ -n "$$(git status --porcelain)" ]; then \
 		echo 'Uncommitted changes: commit or stash them first, so the tag matches what goes on the TV.'; exit 1; fi
-	$(MAKE) install TV=$(TV)
 	@hash=$$($(PYTHON) scripts/tvconfig.py hash) || exit 1; \
 	day=$$(date +%Y-%m-%d); n=1; \
 	while git rev-parse -q --verify "refs/tags/tv-$$day-$$n" >/dev/null; do n=$$((n + 1)); done; \
-	git tag -a "tv-$$day-$$n" -m "Installed on $(TV)" -m "config-sha256: $$hash" && echo "Tagged tv-$$day-$$n (config $$hash)"
+	tag="tv-$$day-$$n"; \
+	$(MAKE) install TV=$(TV) BUILD_TAG=$$tag && \
+	git tag -a "$$tag" -m "Installed on $(TV)" -m "config-sha256: $$hash" && echo "Tagged $$tag (config $$hash)"

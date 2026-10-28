@@ -626,7 +626,9 @@
   }
 
   function renderWeather(card) {
-    el('div', 'head', card, Data.city || tr('Weather'));
+    // Like the prices: an old forecast says how old, rather than passing for today's.
+    var stale = Data.weather ? Data.staleness(Data.weatherAt, 30 * 60000) : '';
+    el('div', 'head', card, (Data.city || tr('Weather')) + (stale ? ' · ' + stale : ''));
     var w = Data.weather;
     if (!w) {
       el('div', 'cond', card, tr('No weather data right now.')).style.top = '96px';
@@ -1125,12 +1127,28 @@
     var rows = [
       [tr('Model'), info && info.model], [tr('Firmware'), info && info.firmware], [tr('System'), info && info.system],
       [tr('IP address'), info && info.ip], [tr('Time zone'), TV.zone()], ['Free My TV', info && info.version]
-    ];
+    ].concat(diagnostics());
     for (var i = 0; i < rows.length; i++) {
       var row = el('div', 'row', holder), label = el('span', '', row, rows[i][0]);
       fitValue(row, label, el('span', 'value', row, info ? rows[i][1] || tr('Unavailable') : '…'));
     }
     el('div', 'hint', box, tr('Back closes.'));
+  }
+
+  /** What was built (make release), and how each source is doing: what to check when a card looks wrong. */
+  function diagnostics() {
+    var b = CONFIG.build || {}, rows = [];
+    if (b.commit) rows.push([tr('Build'), (b.tag ? b.tag + ' · ' : '') + b.commit]);
+    if (b.settings) rows.push([tr('Settings'), b.settings.slice(0, 12)]);
+    if (b.devModeUntil) rows.push([tr('Developer Mode until'), formatDate('format|EEEE, MMMM d', b.devModeUntil)]);
+    var sources = Data.health();
+    for (var i = 0; i < sources.length; i++) {
+      var x = sources[i];
+      rows.push([x.name, x.failed ? trf('Failed {time}: {error}', {time: Data.time(x.failed.at), error: x.failed.error})
+        : x.at ? trf('Updated {time}', {time: Data.time(x.at)}) + (Data.staleness(x.at, 30 * 60000) ? ' (' + Data.staleness(x.at, 30 * 60000) + ')' : '')
+        : tr('Not yet')]);
+    }
+    return rows;
   }
 
   /** A long value (Samsung's firmware) gets smaller instead of running over its label, and ends in "…" if even the smallest size is too wide. */
