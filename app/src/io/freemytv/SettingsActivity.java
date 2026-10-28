@@ -830,6 +830,7 @@ public class SettingsActivity extends Activity {
             l.add("Ethereum");
             l.add("Solana");
             if (dollar()) l.add(Ui.tr("Dollar"));
+            l.add(Ui.tr("Playback history"));
             l.add(Ui.tr("TMDB key"));
             l.add(Ui.tr("Updates"));
             return l.toArray(new String[0]);
@@ -843,6 +844,8 @@ public class SettingsActivity extends Activity {
         private int keyRow() {
             return updatesRow() - 1;
         }
+
+        private int historyRow() { return updatesRow() - 2; }
 
         /** The TMDB key row: "Not set", or the key's last 4 characters (all that's ever shown of it). */
         private static String keyValue() {
@@ -884,7 +887,8 @@ public class SettingsActivity extends Activity {
             v[PLAYING_ROW] = onOff(Prefs.nowPlaying());
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
-            for (int i = COIN_ROWS; i < v.length - 2; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            for (int i = COIN_ROWS; i < historyRow(); i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            v[historyRow()] = "›";
             v[v.length - 2] = keyValue();
             v[v.length - 1] = updatesValue();
             return v;
@@ -932,7 +936,7 @@ public class SettingsActivity extends Activity {
                 whyScroll = pickScroll;
                 for (int r = 0; r < n; r++) {
                     String need = need(r);
-                    whyRows[r] = screen == HOME_SETTINGS && pickScroll + r >= COIN_ROWS && pickScroll + r < keyRow() && !Prefs.quotes()
+                    whyRows[r] = screen == HOME_SETTINGS && pickScroll + r >= COIN_ROWS && pickScroll + r < historyRow() && !Prefs.quotes()
                             ? Ui.tr("Turn on the Quotes widget to pick its coins.")
                             : need == null ? null : Capabilities.missing(getContext(), need);
                 }
@@ -1188,7 +1192,7 @@ public class SettingsActivity extends Activity {
                     break;
                 case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
                 default:
-                    if (row >= keyRow() || !Prefs.quotes()) return;   // the key and Updates act on OK only
+                    if (row >= historyRow() || !Prefs.quotes()) return;   // the library, key and Updates act on OK only
                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));
                     break;
             }
@@ -2002,6 +2006,8 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && pickScroll + focus == updatesRow()) {
                 updateNow();
                 return;
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == historyRow()) {
+                getContext().startActivity(new Intent(getContext(), RecentActivity.class));
             } else if (screen == HOME_SETTINGS && pickScroll + focus == keyRow()) {
                 openKeyScreen();
             } else if (screen == TMDB_KEY) {

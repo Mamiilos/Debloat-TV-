@@ -26,14 +26,31 @@ import java.util.Objects;
 /**
  * What any app is playing (title, artist or channel, the app), from the media session each app publishes for the remote's
  * play/pause and the Assistant: one way for music, videos, radio and live streams alike. Reading the sessions needs this
- * notification listener allowed (HomeMode does it while Home Settings' Now Playing widget is on); it never reads a
- * notification and asks the system to unbind it at once, so no process stays up for it.
+ * notification listener allowed (the widget or opt-in playback history requests it). It never reads notifications.
+ * With history off it unbinds immediately; with history on it monitors sessions in the separate :history process.
  */
 public class NowPlaying extends NotificationListenerService {
+    private static NowPlaying bound;
+    private MediaHistoryMonitor history;
 
     @Override public void onListenerConnected() {
-        requestUnbind();
+        bound = this;
+        updateHistory();
     }
+
+    static void historyChanged() {
+        RecentMedia.MAIN.post(() -> { if (bound != null) bound.updateHistory(); });
+    }
+
+    private void updateHistory() {
+        if (RecentMedia.enabled(this)) {
+            if (history == null) { history = new MediaHistoryMonitor(this); history.start(); }
+        } else { stopHistory(); requestUnbind(); }
+    }
+
+    @Override public void onListenerDisconnected() { bound = null; stopHistory(); }
+    @Override public void onDestroy() { if (bound == this) bound = null; stopHistory(); super.onDestroy(); }
+    private void stopHistory() { if (history != null) { history.stop(); history = null; } }
 
     private static final float[] STILL = {0.55f, 1, 0.75f}, PERIOD_MS = {170, 230, 200};
 

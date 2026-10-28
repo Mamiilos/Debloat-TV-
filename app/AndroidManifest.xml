@@ -218,10 +218,13 @@
             android:process=":sleep"
             android:exported="false" />
 
-        <!-- Lets the home screen and the screensaver read what apps are playing (their media sessions); it unbinds itself
-             at once, so no process stays up for it. -->
+        <activity android:name=".RecentActivity" android:process=":history" android:exported="false"
+            android:screenOrientation="landscape" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <!-- Media sessions only. History keeps its own process while opted in; the widget alone unbinds. -->
         <service
             android:name=".NowPlaying"
+            android:process=":history"
             android:exported="true"
             android:label="Free My TV"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">

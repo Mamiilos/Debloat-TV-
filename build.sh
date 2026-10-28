@@ -69,6 +69,7 @@ final class Config {
     private Config() {}
 
     static final String TMDB_KEY = "$(prop tmdb_key '')";
+    static final String TRAKT_CLIENT_ID = "$(prop trakt_client_id '')";
     static final String WATCHMODE_KEY = "$(prop watchmode_key '')";
     static final String PLEX_URL = "$(prop plex_url '')";
     static final String PLEX_TOKEN = "$(prop plex_token '')";

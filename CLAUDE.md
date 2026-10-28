@@ -278,7 +278,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
 - Continue Watching gets `READ_TV_LISTINGS` with `pm grant` through the TV's own ADB only when picked in Home Settings;
   *Original* revokes it with `pm revoke`. Watch Next pictures load only from the TV (`content://`, `android.resource://`),
   never from the network. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
-  server (with a `plex_url`) and GitHub's releases (Updates): new sources (such as Stremio) must not add network calls
+  server (with a `plex_url`), GitHub's releases (Updates), and Trakt only for explicitly connected playback history: new sources (such as Stremio) must not add network calls
   without the owner's OK.
 - On-screen text: `Ui.tr("English")`, translated from `app/assets/i18n/<lang>.json` (keyed by the English; one
   HashMap lookup, English when a language lacks it). Text built at runtime is a pattern: `Ui.trf("{n} min ago", "n", 12)`,
@@ -349,15 +349,21 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   before reading `adb logcat -s FreeMyTV`.
   `adb shell input keyevent` doesn't test any of these: injected keys skip the accessibility key filter.
 - What's playing (`NowPlaying`) comes from the apps' media sessions, which Android hands only to an allowed notification
-  listener. A listener could read every notification, so ours follows Home Settings' *Now Playing widget* (off by
+  listener. A listener could read every notification, so ours follows Home Settings' *Now Playing widget* or opt-in *Playback history* (both off by
   default): turning it on allows it through ADB (`HomeMode.nowPlayingAccess`, `cmd notification allow_listener`; the
   `enabled_notification_listeners` setting grants nothing since Android 8) and proves it took (`Capabilities.LISTENER`,
-  else the row shows Unavailable); turning it off, *Original* and the watchdog's revert take it back. The switch to
-  Free My TV mode allows nothing. `HomeMode` sets it, under the `RUN` lock, to what the widget says at that moment (so
+  else the row shows Unavailable); turning both features off, *Original* and the watchdog's revert take it back. The switch to
+  Free My TV mode allows nothing. `HomeMode` sets it, under the `RUN` lock, to what the widget and history settings say at that moment (so
   quick toggles and a revert can't cross), `verifyNow` does the same after a boot or an update, and a screen that finds
   it on but not allowed asks once.
-  It unbinds itself as soon as it connects (the permission is all it's for), and the home screen and the screensaver
-  watch the sessions only while they show. The line is cut to fit when the title changes, never while drawing; the
+  With Playback history off, it unbinds itself as soon as it connects, and the home screen and the screensaver
+  watch sessions only while they show. With history on, `MediaHistoryMonitor` stays bound in `:history`, observes
+  advancing positions and joins fresh Watch Next updates after playback. `RecentActivity`, `RecentMedia` and
+  `TraktSync` share this process; private history and token files have one serial writer each. Trakt is optional,
+  uses device OAuth (Client ID only, never a password or Client Secret), and writes delayed history only after
+  measured coverage and unambiguous identity match. Keep the sent journal, account scoping and pre-write history
+  lookup: the API does not deduplicate writes for us. See `docs/playback-history.md` and run
+  `tools/test-playback.sh` after changes to evidence or OAuth polling. The line is cut to fit when the title changes, never while drawing; the
   home screen's bars bounce again only for a new title (`Watch.title`), and TalkBack announces it then.
 - HY300 projectors (Hotack, Allwinner H713, Android 11 tested; the build claims to be an `askey`/`adt3`): the stock
   home screen and screensaver are `com.htc.htclauncherhighenglishd08`, which also carries an ad SDK (`com.zeasn.ad`).

@@ -53,12 +53,19 @@ final class KeyPage {
     private final ServerSocket server;
     private final String path;
     private final Listener listener;
+    private final String customTitle, customHelp;
     private final AtomicBoolean taken = new AtomicBoolean();      // a key came: the one this page takes
     private final AtomicInteger answering = new AtomicInteger();   // connections being answered
     private volatile boolean closed;
 
     KeyPage(InetAddress lan, Listener listener) throws IOException {
+        this(lan, listener, null, null);
+    }
+
+    KeyPage(InetAddress lan, Listener listener, String title, String help) throws IOException {
         this.listener = listener;
+        this.customTitle = title;
+        this.customHelp = help;
         byte[] random = new byte[12];
         new SecureRandom().nextBytes(random);
         path = "/" + Base64.getUrlEncoder().withoutPadding().encodeToString(random);
@@ -257,6 +264,11 @@ final class KeyPage {
     /** How to get a key, then the field to paste it in. */
     private byte[] form() {
         StringBuilder b = top();
+        if (customTitle != null) {
+            return bottom(b.append("<p>").append(esc(customHelp)).append("</p><form method=post action=\"").append(path)
+                    .append("\"><textarea name=key rows=3 required autocomplete=off autocapitalize=off spellcheck=false></textarea><button>")
+                    .append(esc(Ui.tr("Send to the TV"))).append("</button></form>"));
+        }
         b.append("<p>").append(esc(Ui.tr("The key brings the picks: what's trending on your streaming apps, with their photos on the screensaver.")))
                 .append("</p><p>").append(esc(Ui.tr("Free, and it takes two minutes:"))).append("</p><ol><li>")
                 .append(esc(Ui.tr("Create an account at themoviedb.org."))).append("</li><li>")
@@ -282,7 +294,7 @@ final class KeyPage {
         return bottom(b);
     }
 
-    private static StringBuilder top() {
+    private StringBuilder top() {
         return new StringBuilder(2048).append("<!doctype html><html lang=\"").append(esc(Ui.language))
                 .append("\"><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">")
                 .append("<title>Free My TV</title><style>")
@@ -293,7 +305,7 @@ final class KeyPage {
                 .append("border-radius:12px;background:#f5f5f7;color:#1c1c1e;font:600 17px system-ui,sans-serif;text-align:center;")
                 .append("text-decoration:none}.b{background:#3a3a3c;color:#f5f5f7}.s{color:#98989d;font-size:15px}")
                 .append(".ok{color:#7ee08a;font-size:20px}.no{color:#ffc266;font-size:20px}</style>")
-                .append("<h1>").append(esc(Ui.tr("TMDB key"))).append(" · Free My TV</h1>");
+                .append("<h1>").append(esc(customTitle == null ? Ui.tr("TMDB key") : customTitle)).append(" · Free My TV</h1>");
     }
 
     private static byte[] bottom(StringBuilder b) {
