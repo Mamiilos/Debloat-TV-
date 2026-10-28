@@ -105,7 +105,7 @@ final class WatchImages {
     private static String resolve(WatchNext.Item item) throws Exception {
         boolean episode = item.seasonNumber >= 0 && item.episodeNumber > 0;
         String type =
-                episode || item.mediaType == 3 || item.mediaType == 2
+                episode || item.mediaType == 3 || item.mediaType == 2 || item.mediaType == 1
                         ? "tv"
                         : item.mediaType == 0 ? "movie" : "";
         if (type.isEmpty()) return null;
