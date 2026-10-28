@@ -30,14 +30,14 @@ config-hash:
 	@$(PYTHON) scripts/tvconfig.py hash
 
 # Refuses a dirty tree, so the tag is exactly what went on the TV. The tag's name is chosen first (About this TV shows
-# it), and it's made only after the install succeeded. The tagging stays off the $(MAKE) line: make runs that line even
+# it): one more than the day's highest, never a gap. It's made only after the install succeeded. The tagging stays off the $(MAKE) line: make runs that line even
 # under -n, so a dry run would tag.
 release:
 	@if [ -n "$$(git status --porcelain)" ]; then \
 		echo 'Uncommitted changes: commit or stash them first, so the tag matches what goes on the TV.'; exit 1; fi
-	@mkdir -p out; day=$$(date +%Y-%m-%d); n=1; \
-	while git rev-parse -q --verify "refs/tags/tv-$$day-$$n" >/dev/null; do n=$$((n + 1)); done; \
-	echo "tv-$$day-$$n" > out/release-tag
+	@mkdir -p out; day=$$(date +%Y-%m-%d); \
+	n=$$(git tag -l "tv-$$day-*" | sed "s/^tv-$$day-//" | sort -n | tail -1); \
+	echo "tv-$$day-$$(( $${n:-0} + 1 ))" > out/release-tag
 	$(MAKE) install TV=$(TV) BUILD_TAG="$$(cat out/release-tag 2>/dev/null)"
 	@tag=$$(cat out/release-tag); hash=$$($(PYTHON) scripts/tvconfig.py hash) || exit 1; \
 	git tag -a "$$tag" -m "Installed on $(TV)" -m "config-sha256: $$hash" && rm out/release-tag && echo "Tagged $$tag (config $$hash)"
