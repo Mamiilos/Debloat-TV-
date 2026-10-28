@@ -279,8 +279,9 @@ var Data = (function () {
 
   // MARK: - Tides (the Worker, worker/: UKHO's Admiralty predictions)
 
+  // Only in memory: UKHO's free tier forbids storing its data, so a restart asks again.
   var WORKER = CONFIG.worker || {};
-  var tides = stored('tides') || {}, tidesAt = tides.at || 0, fetchingTides = false;
+  var tides = {}, tidesAt = 0, fetchingTides = false;
 
   function refreshTides() {
     var now = Date.now();
@@ -293,12 +294,11 @@ var Data = (function () {
       if (err) return;
       tidesAt = Date.now();
       tides = {at: tidesAt, stations: body.stations};
-      store('tides', tides);
       changed();
     });
   }
 
-  /** The next high water at each station, [{name, at}] (predictions: a day-old answer still holds). */
+  /** The next high water at each station, [{name, at}]. */
   function nextHighs() {
     var out = [], now = Date.now(), list = tides.stations || [];
     for (var i = 0; i < list.length; i++) {
@@ -311,7 +311,7 @@ var Data = (function () {
     return out;
   }
 
-  /** A station the Worker could only answer from its cache (UKHO down): {at, error}, as noteFetch keeps them. */
+  /** A station the Worker couldn't get from UKHO: {at, error}, as noteFetch keeps them. */
   function tidesFailure() {
     var list = tides.stations || [];
     for (var i = 0; i < list.length; i++) if (list[i].stale && list[i].error) return {at: tidesAt, error: list[i].name + ': ' + list[i].error};

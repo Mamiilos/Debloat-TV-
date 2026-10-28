@@ -14,6 +14,7 @@ STATIONS = "0451:Mersey,0461:Dee"
 # Your home connection's public IP, to refuse every other caller (empty = any).
 ALLOWED_IPS = ""
 
+# Health (each source's last success and failure) and the answers of sources that allow caching; never UKHO's.
 # The id comes from `npx wrangler kv namespace create CACHE`.
 [[kv_namespaces]]
 binding = "CACHE"

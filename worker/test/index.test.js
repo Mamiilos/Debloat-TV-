@@ -54,20 +54,23 @@ test('tides for both stations, UTC times, upcoming only, rounded heights', async
   assert.match(calls[0].url, /Stations\/0451\/TidalEvents/);
 });
 
-test('cached: a second request within 6 h does not call UKHO', async () => {
+test('UKHO is asked every time and nothing of its data is stored (Discovery forbids caching)', async () => {
   await authed('/v1/tides');
   await authed('/v1/tides');
-  assert.equal(calls.length, 2);   // once per station
+  assert.equal(calls.length, 4);   // twice per station
+  for (const [k, v] of env.CACHE.m) {
+    assert.match(k, /^health:/);
+    assert.doesNotMatch(v, /HighWater|LowWater|"high"|"low"|9\.6/);
+  }
 });
 
-test('UKHO down: the last answer, marked stale with the error; health records it', async () => {
+test('UKHO down: no tides, the error; health keeps the last success too', async () => {
   await authed('/v1/tides');
-  for (const [k, v] of env.CACHE.m) if (k.startsWith('tides:')) env.CACHE.m.set(k, JSON.stringify({ ...JSON.parse(v), fetchedAt: 1 }));
   ukhoDown = true;
   const s = (await (await authed('/v1/tides')).json()).stations[0];
   assert.equal(s.stale, true);
   assert.match(s.error, /HTTP 503/);
-  assert.equal(s.events.length, 2);
+  assert.equal(s.events.length, 0);
   const h = await (await get('/health')).json();
   assert.match(h.sources['tides:0451'].error, /HTTP 503/);
   assert.ok(h.sources['tides:0451'].okAt);

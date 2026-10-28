@@ -1,16 +1,16 @@
 /**
- * The TV's backend: holds the API keys (Wrangler secrets), calls the sources, caches their answers in KV, and gives
- * the TV small JSON. The TV holds only TV_TOKEN, read-only and rotatable.
+ * The TV's backend: holds the API keys (Wrangler secrets), calls the sources, and gives the TV small JSON. The TV
+ * holds only TV_TOKEN, read-only and rotatable. KV keeps each source's last success and failure (/health), and the
+ * answers of sources whose terms allow it (cached); never UKHO's.
  *
- *   GET /v1/tides   the next week of high and low water at STATIONS (UKHO's Admiralty API)
+ *   GET /v1/tides   the next week of high and low water at STATIONS (UKHO's Admiralty API, asked every time)
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
  * Secrets: TV_TOKEN, UKHO_KEY. Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (comma separated; empty = any).
  */
 
 const DAY = 86400000;
-const TIDES_FRESH = 6 * 3600000;   // tide predictions don't change: 8 calls a day to UKHO at most
-const KEEP = 3 * DAY;              // a stale answer stays, to serve when UKHO is down
+const KEEP = 3 * DAY;   // how long KV keeps a cached answer (to serve stale when its source is down) and health
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -46,8 +46,28 @@ function stations(env) {
   });
 }
 
+/** Notes a source's success or failure for /health (no data: some sources' terms forbid storing it). */
+async function noteHealth(env, key, error) {
+  const health = (await env.CACHE.get('health:' + key, 'json')) || {};
+  const next = error ? { ...health, failedAt: Date.now(), error } : { ...health, okAt: Date.now() };
+  await env.CACHE.put('health:' + key, JSON.stringify(next), { expirationTtl: KEEP / 1000 });
+}
+
+/** Fetches every time, for sources that may not be stored (UKHO's free Discovery tier forbids caching). */
+async function live(env, key, load) {
+  try {
+    const data = await load();
+    await noteHealth(env, key);
+    return data;
+  } catch (e) {
+    console.error(JSON.stringify({ source: key, error: String(e.message || e) }));
+    await noteHealth(env, key, String(e.message || e));
+    throw e;
+  }
+}
+
 /**
- * The cached answer for key, fetched again when older than fresh. When the source fails, the last answer is served
+ * The cached answer for key, fetched again when older than fresh (only for sources whose terms allow caching). When the source fails, the last answer is served
  * with stale: true and the error, so the TV can say "stale since"; the failure is logged for Workers Logs.
  */
 async function cached(env, key, fresh, load) {
@@ -57,13 +77,11 @@ async function cached(env, key, fresh, load) {
     const data = await load();
     const entry = { fetchedAt: Date.now(), data };
     await env.CACHE.put(key, JSON.stringify(entry), { expirationTtl: KEEP / 1000 });
-    await env.CACHE.put('health:' + key, JSON.stringify({ okAt: entry.fetchedAt }), { expirationTtl: KEEP / 1000 });
+    await noteHealth(env, key);
     return { ...entry, stale: false };
   } catch (e) {
     console.error(JSON.stringify({ source: key, error: String(e.message || e) }));
-    const health = (await env.CACHE.get('health:' + key, 'json')) || {};
-    await env.CACHE.put('health:' + key, JSON.stringify({ ...health, failedAt: Date.now(), error: String(e.message || e) }),
-      { expirationTtl: KEEP / 1000 });
+    await noteHealth(env, key, String(e.message || e));
     if (old) return { ...old, stale: true, error: String(e.message || e) };
     throw e;
   }
@@ -89,9 +107,8 @@ async function tides(env) {
   const out = [];
   for (const s of stations(env)) {
     try {
-      const c = await cached(env, 'tides:' + s.id, TIDES_FRESH, () => ukhoEvents(env, s.id));
-      out.push({ ...s, fetchedAt: c.fetchedAt, stale: c.stale, error: c.error,
-        events: c.data.filter((e) => Date.parse(e.at) > now - 3600000) });
+      const events = await live(env, 'tides:' + s.id, () => ukhoEvents(env, s.id));
+      out.push({ ...s, fetchedAt: Date.now(), stale: false, events: events.filter((e) => Date.parse(e.at) > now - 3600000) });
     } catch (e) {
       out.push({ ...s, fetchedAt: 0, stale: true, error: String(e.message || e), events: [] });
     }
