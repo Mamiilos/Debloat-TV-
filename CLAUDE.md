@@ -123,7 +123,8 @@ stays, and Free My TV opens with a long press of a number key.
    denied, no `getAppLoadStatus`, and the remote control API answers `invalid origin` to file:// pages). Run
    `python3 webos/apps.py <IP>`: the TV asks them once to allow it, then build and install again. It writes
    `webos-apps.local.json` and `webos-icons.local/` (git-ignored), which only the LG build packs, never `--generic`.
-   Again after they install or remove apps.
+   Again after they install or remove apps. Where the TV resets plain connections on port 3000 (a 2024 set, #355), it
+   uses the same API over TLS on 3001, and fetches the icons over https (#357).
 
 ## Installing it on a Samsung TV (Tizen)
 
@@ -168,9 +169,12 @@ Developer Mode; Samsung's home screen stays. Two ways:
    one signed by another (uninstall first). A retail TV's sdbd only takes files (`filesync_support:push`): nothing
    can be pulled from it. To look inside the running app, `0 debug FreeMyTVio.FreeMyTV 300` over SDB opens it with
    a Web Inspector port (Runtime.evaluate works on Tizen 3; screenshots don't; Tizen 2.4 doesn't answer it, nor
-   `0 vd_applist`).
+   `0 vd_applist`). Tizen 2.3 (a 2015 UE48JU6075) answers it on port 7011, one WebSocket connection per launch
+   (`ws://<IP>:7011/devtools/page/1`; `0 kill FreeMyTVio` first to launch it again), and `0 applist` lists its web
+   apps (not the native ones, below).
 8. **Tell them:** *Autorun Last App* in the TV's settings (under Start Screen Options; where it is changes by year)
-   makes the TV turn on into Free My TV.
+   makes the TV turn on into Free My TV on a 2017 set; 2019 and 2020 sets don't reopen Developer Mode apps with it
+   (#356), so there they move it to the first place in the Home bar.
 
 ## Releases
 
@@ -276,8 +280,11 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   On LG and Samsung it's typed in Home Settings (no QR: a web app can't serve a page): `Prefs.tmdbKey()` (localStorage)
   wins over `CONFIG.tmdbKey`, and `Data.keyChanged()` fetches the picks again.
 - Continue Watching gets `READ_TV_LISTINGS` with `pm grant` through the TV's own ADB only when picked in Home Settings;
-  *Original* revokes it with `pm revoke`. Watch Next pictures load only from the TV (`content://`, `android.resource://`),
-  never from the network. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
+  *Original* revokes it with `pm revoke`. Watch Next provider pictures load only from the TV (`content://`, `android.resource://`).
+  The separate, off-by-default TMDB images setting may search viewing titles and episode numbers on TMDB and fetch
+  images only from image.tmdb.org. `WatchImages` bounds and caches them; artwork matching never supplies Trakt evidence.
+  Never fetch an arbitrary network URL published by another app. With playback history on, the native home screen
+  adds a spacious row below recommendations and scrolls by focus between recommendations, history and apps. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
   server (with a `plex_url`), GitHub's releases (Updates), and Trakt only for explicitly connected playback history: new sources (such as Stremio) must not add network calls
   without the owner's OK.
 - On-screen text: `Ui.tr("English")`, translated from `app/assets/i18n/<lang>.json` (keyed by the English; one
@@ -410,7 +417,14 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   and opacity animate. Tizen 2.4 (2016) runs WebKit 538: no Intl (`fmt` in data.js rounds by hand), SVGs need a width
   and height, and `tv.js` adds a `lite` class there that turns off shadows and transitions, which its GPU can't keep up
   with (TVs under 2 GB that draw the page at twice its size get it too, `navigator.deviceMemory` and `devicePixelRatio`: an LG on webOS TV Lite went from 25 to 60 fps); it also
-  can't open the TV's settings (`TV.canOpenSettings`). `web/tv.js` is the
+  can't open the TV's settings (`TV.canOpenSettings`). Without Intl, `toLocaleDateString` ignores its options and
+  writes the whole date, so `strings.js` takes weekday and month names from the catalogues there (`I18N.dateNames` in
+  data.js: `weekday|`, `month|` and `monthday|` keys, the last in the form next to a day). Tizen 2.3 and 2.4 don't
+  trust Let's Encrypt's ISRG root, so Open-Meteo falls back to plain http there (`getMeteo`; only coordinates and the
+  forecast go in the clear). On Tizen 2.3 (2015) Netflix, YouTube and Amazon are native apps whose ids start with a
+  number (`11101200001.Netflix`, `111299001912.YouTube`, `111299001578.Amazon_Video`, listed as "Amazon Video"):
+  `tizen.application.launch` doesn't open them, the TV's DIAL server does (`POST http://127.0.0.1:8001/ws/apps/<name>`,
+  `dialLaunch`). `web/tv.js` is the
   TV's side: on LG, Luna (`listLaunchPoints`, `launch`, the inputs; where webOS 6 and newer deny `listLaunchPoints`
   to Developer Mode apps, the list comes from the TV's remote control API on `ws://127.0.0.1:3000` once the TV has
   allowed it (it asks once; a "no" isn't asked again; firmware that gives the page its own origin,

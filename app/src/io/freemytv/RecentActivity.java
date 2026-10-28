@@ -171,6 +171,13 @@ public class RecentActivity extends Activity {
                                 .setNegativeButton(Ui.tr("Cancel"), null)
                                 .show());
         page.addView(text(Ui.tr("Apps decide which titles and resume links they share."), 14));
+        button(page, Ui.tr("TMDB images") + ": " + (RecentMedia.artEnabled(this) ? Ui.tr("On") : Ui.tr("Off")), () -> {
+            RecentMedia.setArt(this, !RecentMedia.artEnabled(this));
+            render();
+        });
+        page.addView(text(Ui.tr("Find episode images and movie backdrops on TMDB. Sends titles to TMDB."), 14));
+        if (RecentMedia.artEnabled(this) && Recs.key().isEmpty())
+            page.addView(text(Ui.tr("TMDB key") + ": " + Ui.tr("Not set"), 14));
         if (!RecentMedia.problem.isEmpty()) page.addView(text(RecentMedia.problem, 14));
         if (!RecentMedia.enabled(this)) return;
         if (checkSelfPermission("android.permission.READ_TV_LISTINGS")

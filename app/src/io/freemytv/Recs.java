@@ -871,6 +871,13 @@ final class Recs {
 
     private static final String REJECTED = "TMDB rejected the key";
 
+    /** Opt-in Continue Watching artwork uses the same TMDB credentials and API host as recommendations. */
+    static JSONObject catalog(String path) throws IOException, org.json.JSONException {
+        String token = key();
+        if (token.isEmpty()) throw new IOException("no TMDB key");
+        return request(path, token);
+    }
+
     private static JSONObject request(String path, String key) throws IOException, org.json.JSONException {
         boolean bearer = key.startsWith("eyJ");   // read access token (v4) or API key (v3)
         String url = API + path + (bearer ? "" : (path.contains("?") ? "&" : "?") + "api_key=" + URLEncoder.encode(key, "UTF-8"));

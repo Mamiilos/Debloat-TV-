@@ -172,6 +172,17 @@ var TV = (function () {
     'AprZAARz4r.Jellyfin': 'icons/jellyfin.svg'
   };
 
+  // The same logos by name (lowercase letters and digits only), for app ids the list above doesn't know: older TVs
+  // (a 2016 KU6300, Tizen 2.4) can carry other ids for the same apps.
+  var SAMSUNG_ICON_NAMES = {
+    youtube: 'icons/youtube.png', primevideo: 'icons/prime.png', amazonprimevideo: 'icons/prime.png',
+    netflix: 'icons/netflix.svg', max: 'icons/max.svg', hbomax: 'icons/max.svg', spotify: 'icons/spotify.svg',
+    deezer: 'icons/deezer.svg', youtubekids: 'icons/youtubekids.svg', redbulltv: 'icons/redbull.svg', ted: 'icons/ted.svg',
+    steamlink: 'icons/steam.svg', jellyfin: 'icons/jellyfin.svg', paramount: 'icons/paramountplus.svg',
+    paramountplus: 'icons/paramountplus.svg', crunchyroll: 'icons/crunchyroll.svg', twitch: 'icons/twitch.svg',
+    plex: 'icons/plex.svg', appletv: 'icons/appletv.svg'
+  };
+
   // Names Smart Hub gets wrong: HBO's app has none (so it never reached the shelf), others are long or old.
   var SAMSUNG_TITLES = {
     'NvZ26VG9Yw.HBOGOLAG': 'Max',
@@ -264,16 +275,54 @@ var TV = (function () {
   function samsungApp(a) {
     var icon = a.iconPath || '';
     if (icon && icon.indexOf('://') < 0) icon = 'file://' + icon;
-    if (SAMSUNG_ICONS[a.id]) icon = SAMSUNG_ICONS[a.id];
-    return {id: a.id, title: SAMSUNG_TITLES[a.id] || a.name || a.id, icon: icon, color: ''};
+    var title = SAMSUNG_TITLES[a.id] || a.name || a.id;
+    // Older Smart Hubs (a 2015 JU6075) still list Amazon's app under its old name, with another id.
+    if (/^Amazon( Instant)? Video$/i.test(title)) title = 'Prime Video';
+    var key = String(title).toLowerCase().replace(/[^a-z0-9]/g, '');
+    var byName = Object.prototype.hasOwnProperty.call(SAMSUNG_ICON_NAMES, key) ? SAMSUNG_ICON_NAMES[key] : '';
+    if (SAMSUNG_ICONS[a.id] || byName) icon = SAMSUNG_ICONS[a.id] || byName;
+    var dial = key === 'netflix' ? 'Netflix' : key === 'youtube' ? 'YouTube' : /^(amazon)?primevideo$/.test(key) ? 'Amazon' : '';
+    if (dial) samsungDial[a.id] = dial;
+    return {id: a.id, title: title, icon: icon, color: ''};
+  }
+
+  /**
+   * Built-in apps whose id starts with a number (11101200001.Netflix, 111299001912.YouTube and
+   * 111299001578.Amazon_Video on a 2015 JU6075, Tizen 2.3) are native, and tizen.application.launch doesn't open them;
+   * the TV's own DIAL server, which phones cast through, does.
+   */
+  var samsungDial = {}, NATIVE = /^\d+(\.|$)/;
+
+  function dialLaunch(name, done) {
+    var x = new XMLHttpRequest(), over = false;
+    x.open('POST', 'http://127.0.0.1:8001/ws/apps/' + name, true);
+    x.timeout = 8000;
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4 || over) return;
+      over = true;
+      if (done) done(x.status === 200 || x.status === 201);
+    };
+    x.ontimeout = x.onerror = function () { if (!over) { over = true; if (done) done(false); } };
+    x.setRequestHeader('Content-Type', 'text/plain; charset=utf-8');
+    x.send('');
   }
 
   function samsungLaunch(id, done) {
-    try {
-      window.tizen.application.launch(id, function () { if (done) done(true); }, function () { if (done) done(false); });
-    } catch (e) {
-      if (done) done(false);
+    var dial = samsungDial[id];
+    function launch(otherwise) {
+      try {
+        window.tizen.application.launch(id, function () { if (done) done(true); }, otherwise);
+      } catch (e) {
+        otherwise();
+      }
     }
+    function failed() { if (done) done(false); }
+    // A native id: DIAL first (launch doesn't open those on Tizen 2.3), and launch where DIAL doesn't answer.
+    if (dial && NATIVE.test(id)) {
+      dialLaunch(dial, function (ok) { if (ok) { if (done) done(true); } else launch(failed); });
+      return;
+    }
+    launch(dial ? function () { dialLaunch(dial, done); } : failed);
   }
 
   /**

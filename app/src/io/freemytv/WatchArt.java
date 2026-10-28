@@ -29,8 +29,8 @@ import java.util.concurrent.Executors;
  * The "Continue watching" cards' pictures, decoded in the background once, at the card's size on screen (16:9,
  * centre-cropped), and kept in memory. Drawing only reuses them. Only pictures already on the TV are read (content:// and
  * android.resource://, from the apps themselves): the app never downloads an address another app wrote (http, https),
- * since it only talks to TMDB, Open-Meteo and Binance, and never opens files (file://). Anything else, or a picture that
- * can't be read, shows the app's TV banner instead, and isn't tried again for a while.
+ * and never opens provider file:// URLs. Explicitly enabled TMDB artwork is resolved separately by WatchImages,
+ * using fixed TMDB hosts. Unknown titles or unavailable pictures keep the app banner.
  */
 final class WatchArt {
     /** The card in the 1920×1080 layout; the pictures are made at this times the UI's scale (setScale). */
@@ -53,7 +53,7 @@ final class WatchArt {
     private final Map<Bitmap, BitmapShader> shaders = new HashMap<>();   // for the rounded corners, made with the picture
     private final Map<String, Bitmap> cache = new LinkedHashMap<String, Bitmap>(16, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<String, Bitmap> eldest) {
-            if (size() <= 16) return false;   // ~600 KB each at 1080p: the row and a little more
+            if (size() <= 24) return false;   // images plus the app banners used while optional catalog art loads
             shaders.remove(eldest.getValue());
             return true;
         }
@@ -68,7 +68,14 @@ final class WatchArt {
      * The card's picture, or the app's banner if it has none or it failed; null while loading (in the background;
      * onLoaded runs on the main thread when it's in).
      */
-    Bitmap get(Uri uri, String key, String bannerKey, String pkg) {
+    Bitmap get(WatchNext.Item item) {
+        Uri uri = item.pictureUri;
+        String key = item.pictureKey, bannerKey = item.bannerKey, pkg = item.pkg;
+        // Some providers publish their logo as a valid local picture. When opted in, prefer the episode still.
+        if (item.catalogKey != null) {
+            Bitmap b = fetch(item.catalogKey, null, pkg, item);
+            if (b != null) return b;
+        }
         if (uri != null) {
             Bitmap b = fetch(key, uri, pkg);
             if (b != null || !failedRecently(key)) return b;
@@ -125,6 +132,10 @@ final class WatchArt {
     }
 
     private Bitmap fetch(String key, Uri uri, String pkg) {
+        return fetch(key, uri, pkg, null);
+    }
+
+    private Bitmap fetch(String key, Uri uri, String pkg, WatchNext.Item catalog) {
         if (closed) return null;
         synchronized (cache) {
             Bitmap b = cache.get(key);
@@ -137,8 +148,11 @@ final class WatchArt {
             if (closed) return;
             Bitmap b = null;
             try {
-                b = uri == null ? banner(pkg) : load(uri);
-            } catch (IOException | RuntimeException | OutOfMemoryError e) {
+                if (catalog != null) {
+                    byte[] bytes = WatchImages.load(app, catalog);
+                    if (bytes != null) b = decode(bytes);
+                } else b = uri == null ? banner(pkg) : load(uri);
+            } catch (Exception | OutOfMemoryError e) {
                 AppLog.w("continue watching picture: " + e.getMessage());
             }
             Integer color = b == null ? null : colorOf(b);
@@ -160,7 +174,10 @@ final class WatchArt {
     }
 
     private Bitmap load(Uri uri) throws IOException {
-        byte[] data = read(uri);
+        return decode(read(uri));
+    }
+
+    private Bitmap decode(byte[] data) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(data, 0, data.length, bounds);

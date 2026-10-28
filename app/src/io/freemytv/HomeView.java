@@ -168,6 +168,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int watchIndex;
     private boolean watchAllowed = true;
     private boolean watchLoaded;   // read at least once: before that, no "nothing half-watched"
+    private boolean historyRow;    // opt-in history also shows a row below the recommendations
+    private final Spring homeScroll = new Spring(0.3f, 0.9f, 0);
     private String[] watchTitles, watchMetas;
     private float watchTextsK;
     private int watchTextsGen = -1;
@@ -411,6 +413,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             data.refreshIfStale();
             recs.refreshIfStale();
             checkNotices();
+            if (watchShown()) reload();   // providers can publish the title just after returning Home
             updatePalette();
             checkNight(true);
             updatePicks();      // new ones every hour
@@ -569,7 +572,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         cancelReorder(!animated);
         closeMenu(!animated);
-        zone = Z_SHELF;
+        zone = mixedMode() ? (cards.isEmpty() ? Z_TOP : Z_CARDS) : Z_SHELF;
+        if (mixedMode()) topIndex = tab;
         shelfIndex = 0;
         cardIndex = 0;
         sheetOpen = false;
@@ -637,7 +641,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
         float kk = width / 1920f;
         measure(sky, width, height);
-        measure(heroLayer, width, Math.round(790 * kk));
+        measure(heroLayer, width, Math.round((mixedMode() ? 1260 : 790) * kk));
         measure(status, Math.round(1160 * kk), Math.round(240 * kk));
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
         // cheaper for the GPU to composite on every frame of the drawer animation.
@@ -660,8 +664,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sky.layout(0, 0, width, height);
         place(heroLayer, 0, 0);
         place(status, width - status.getMeasuredWidth(), 0);
-        place(platter, 0, Math.round(750 * kk));
-        place(tiles, 0, Math.round(790 * kk));
+        place(platter, 0, Math.round((mixedMode() ? 1250 : 750) * kk));
+        place(tiles, 0, Math.round((mixedMode() ? 1290 : 790) * kk));
         place(drawerLayer, 0, Math.round(470 * kk));
         sheetLayer.layout(0, 0, width, height);
         menuLayer.layout(0, 0, width, height);
@@ -803,6 +807,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean drawerItemsMoving = step(drawerFocus, dt);
         boolean gridMoving = step(gridFocus, dt) | scroll.step(dt);
         boolean drawerMoving = drawer.step(dt);
+        boolean homeMoving = homeScroll.step(dt);
         boolean sheetMoving = sheet.step(dt);
         boolean toastFading = tickToast(up);
         boolean heroFading = tickHeroFade(up);
@@ -812,7 +817,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (menuMoving || nightMoving && menuOpen) menuLayer.invalidate();
         else if (!menuOpen && menuLayer.getVisibility() == VISIBLE) menuLayer.setVisibility(INVISIBLE);
 
-        if (drawerMoving || sheetMoving || motionDirty) updateMotion();
+        if (drawerMoving || homeMoving || sheetMoving || motionDirty) updateMotion();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
         // drop frames (measured: ~50 ms of GPU per frame). The app tiles have no glass; the top buttons fade out as
         // they rise; the drawer is drawn resting in place; the glass shelf is redrawn once the drawer stops, so the
@@ -838,7 +843,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
         // Busy: something is moving, or the sheet or the drawer is open.
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
-                || menuMoving || sheetMoving || toastFading || heroFading || bgFading || nightMoving || tintMoving || sheetOpen
+                || homeMoving || menuMoving || sheetMoving || toastFading || heroFading || bgFading || nightMoving || tintMoving || sheetOpen
                 || sheet.value > 0.001f || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
@@ -864,7 +869,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float d = drawer.value, dc = Ui.clamp(d), s = Ui.clamp(sheet.value);
         float home = 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc));
         float shift = SHIFT * k;
-        float lift = -d * shift;
+        float lift = -d * shift - homeScroll.value * k;
         show(heroLayer, top, lift);
         show(status, top, lift);
         show(platter, home, lift);
@@ -1381,13 +1386,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void layoutShelf() {
         int n = Math.min(shelf.size(), shelfVisible);
         float pad = SHELF_PAD * k, gap = TILE_GAP * k;
+        float tileHeight = L_TILE_H;
         float full = (CONTENT_R - MARGIN) * k;
         // Tiles in the TV banners' own 16:9, so an app's art is never stretched; never taller than L_TILE_H. The glass
         // keeps its bottom edge, so with more apps it only gets lower.
-        float tw = Math.min(L_TILE_H * 16f / 9 * k, (full - Math.max(0, n - 1) * gap) / Math.max(1, n));
+        float tw = Math.min(tileHeight * 16f / 9 * k, (full - Math.max(0, n - 1) * gap) / Math.max(1, n));
         float th = tw * 9f / 16;
         float width = n * tw + Math.max(0, n - 1) * gap, left = (w - width) / 2f;
-        float top = (L_PLATTER_TOP + L_TILE_H) * k - th;
+        float top = ((mixedMode() ? 1310 : L_PLATTER_TOP) + tileHeight) * k - th;
         platterRect.set(left - pad, top, left + width + pad, top + th + 2 * pad);
         snap(platterRect);
         shelfFirst = Math.max(0, Math.min(shelfFirst, shelf.size() - n));
@@ -2100,6 +2106,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Sets the springs' targets from the current focus (snap: no animation). */
     private void retarget(boolean snap) {
+        homeScroll.target = mixedMode() ? (zone == Z_WATCH ? 360
+                : zone == Z_SHELF || zone == Z_DRAWER || zone == WIDGETS ? 520 : 0) : 0;
+        if (snap) homeScroll.snap(homeScroll.target);
+        motionDirty = true;
         revealShelf(snap);
         // Only the group whose focus changed is redrawn (moving along the shelf doesn't redraw the hero or capsule).
         boolean tilesChanged = aim(tileFocus, !sheetOpen && zone == Z_SHELF ? shelfIndex : -1, snap);
@@ -2117,8 +2127,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (snap) cardScroll.snap(scrollTo);
         heroChanged |= aim(watchFocus, !sheetOpen && zone == Z_WATCH ? watchIndex : -1, snap);
         updateTint();
-        // The row scrolls so the focused card is at most the third one on screen.
-        float watchTo = Math.max(0, Math.min(watchIndex - 2, watching.size() - 3));
+        // Keep the focused card within the visible row (four cards below recommendations, three in the full-size row).
+        int visibleWatch = mixedMode() ? 4 : 3;
+        float watchTo = Math.max(0, Math.min(watchIndex - visibleWatch + 1, watching.size() - visibleWatch));
         if (watchScroll.target != watchTo || snap) {
             heroChanged = true;
             if (snap) watchScroll.snap(watchTo); else watchScroll.target = watchTo;
@@ -2376,13 +2387,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             final List<HomeApps.Item> d = drawerList(c);
             final List<HomeApps.Item> o = apps ? HomeApps.others(c) : null;
             final List<HomeApps.Item> top = apps ? HomeApps.topButtons() : null;   // they change with Prefs too
-            // Only read when it's shown: with the picks or the clock, Continue Watching costs nothing.
+            // Only read when selected, or when opt-in history adds the second row below the picks.
             final String mode = Prefs.topContent();
             final boolean allowed = WatchNext.allowed(c);
-            final List<WatchNext.Item> w = mode.equals(Prefs.TOP_CONTINUE) ? WatchNext.load(c) : new ArrayList<>();
+            final boolean history = RecentMedia.enabled(c);
+            final List<WatchNext.Item> w = mode.equals(Prefs.TOP_CONTINUE) || history ? WatchNext.load(c) : new ArrayList<>();
             handler.post(() -> {
                 if (top != null) setLightButtons(top);
-                setTopContent(mode, w, allowed);
+                setTopContent(mode, w, allowed, history);
                 if (s != null) setShelf(s);
                 setStatusItems(st);
                 setDrawerItems(d);
@@ -2951,7 +2963,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         for (int i = picksMode() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
         for (int i = 0; i < Math.min(Recs.MAX_CARDS, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
-        if (continueMode()) for (int i = 0; i < watching.size(); i++) out.add(a11yId(Z_WATCH, i));
+        if (watchShown()) for (int i = 0; i < watching.size(); i++) out.add(a11yId(Z_WATCH, i));
         for (int i = shelfFirst; i < Math.min(shelf.size(), shelfFirst + shelfVisible); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
         if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
@@ -3061,7 +3073,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return !reordering && !menuOpen && !sheetOpen && shelf.size() > 1 && i < shelf.size()
                     && shelf.get(i).kind == HomeApps.APP && shelf.get(i).pkg != null;
         }
-        return group == Z_WATCH && !menuOpen && continueMode() && i < watching.size();
+        return group == Z_WATCH && !menuOpen && watchShown() && i < watching.size();
     }
 
     private int a11yFocused() {
@@ -3238,7 +3250,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The cards side by side: the one at cardIndex wide, the others tall, sliding as `cardOpen` moves. */
     private void layoutCards() {
-        float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, tall = L_TALL_W * k;
+        float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k;
+        float tall = L_TALL_W * k;
         float wide = (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g, x = MARGIN * k - cardScroll.value * (tall + g);
         for (int i = 0; i < Recs.MAX_CARDS; i++) {
             float w = Math.max(tall * 0.5f, tall + (wide - tall) * cardOpen[i].value);
@@ -3304,24 +3317,33 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return topMode.equals(Prefs.TOP_CONTINUE);
     }
 
+    private boolean mixedMode() {
+        return historyRow && picksMode();
+    }
+
+    private boolean watchShown() {
+        return continueMode() || mixedMode();
+    }
+
     /** What the top shows now (from reload, off the main thread) and, for Continue Watching, its list. */
-    private void setTopContent(String mode, List<WatchNext.Item> list, boolean allowed) {
+    private void setTopContent(String mode, List<WatchNext.Item> list, boolean allowed, boolean history) {
         if (!hiddenNow.isEmpty()) {
             List<WatchNext.Item> shown = new ArrayList<>(list.size());
             for (WatchNext.Item it : list) if (!hiddenNow.contains(WatchNext.hideKey(it))) shown.add(it);
             list = shown;
         }
-        boolean modeChanged = !mode.equals(topMode);
+        boolean modeChanged = !mode.equals(topMode) || history != historyRow;
         boolean listChanged = !sameWatching(list, watching);
         // The permission (granted or taken back) and the first read change what an empty row says: redraw for those.
-        boolean textChanged = allowed != watchAllowed || !watchLoaded && mode.equals(Prefs.TOP_CONTINUE);
+        boolean textChanged = allowed != watchAllowed || !watchLoaded && (mode.equals(Prefs.TOP_CONTINUE) || history);
         watchAllowed = allowed;
-        if (mode.equals(Prefs.TOP_CONTINUE)) watchLoaded = true;
+        if (mode.equals(Prefs.TOP_CONTINUE) || history) watchLoaded = true;
         if (!modeChanged && !listChanged) {
             if (textChanged) heroDirty = true;
             return;
         }
         topMode = mode;
+        historyRow = history;
         if (modeChanged) closeMenu(false);
         watching = list;
         watchTitles = null;
@@ -3330,6 +3352,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (modeChanged || lost) zone = Z_SHELF;
         if (modeChanged) {
             updateCards();
+            if (mixedMode()) { zone = cards.isEmpty() ? Z_TOP : Z_CARDS; topIndex = tab; }
+            layoutShelf();
+            requestLayout();
+            platter.invalidate();
+            tilesDirty = true;
             if (bgTo == null && bgFadeAt == 0) neutralGlass();   // the plain background depends on the mode too
             sky.invalidate();   // the background's gradient depends on the mode
         }
@@ -3344,16 +3371,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             // The episode and the link too: "S2 E6" becoming "S2 E7" keeps the title, often the picture and a 0 position.
             if (!x.pkg.equals(y.pkg) || !x.title.equals(y.title) || x.position != y.position || x.duration != y.duration
                     || !java.util.Objects.equals(x.episode, y.episode) || !java.util.Objects.equals(x.intent, y.intent)
-                    || !java.util.Objects.equals(x.picture(), y.picture())) return false;
+                    || !java.util.Objects.equals(x.picture(), y.picture())
+                    || !java.util.Objects.equals(x.catalogKey, y.catalogKey)) return false;
         }
         return true;
     }
 
     /** Card i's place on screen (without its focus growth), scrolled with the row. */
     private void watchRect(int i, RectF out) {
-        float step = (WatchArt.W + WATCH_GAP) * k;
-        float x = MARGIN * k + i * step - watchScroll.value * step, y = L_CARDS_TOP * k;
-        out.set(x, y, x + WatchArt.W * k, y + WatchArt.H * k);
+        float width = mixedMode() ? 400 : WatchArt.W, height = mixedMode() ? 225 : WatchArt.H;
+        float step = (width + WATCH_GAP) * k;
+        float x = MARGIN * k + i * step - watchScroll.value * step, y = (mixedMode() ? 916 : L_CARDS_TOP) * k;
+        out.set(x, y, x + width * k, y + height * k);
     }
 
     /** Each card's title and details line ("Netflix · S2 E5 · 23 min left"), cut to the card's width once per list. */
@@ -3362,7 +3391,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         watchTitles = new String[n];
         watchMetas = new String[n];
         TextPaint tp = new TextPaint(lCardTitle), mp = new TextPaint(lCardMeta);
-        float width = WatchArt.W * k;
+        float width = (mixedMode() ? 400 : WatchArt.W) * k;
         for (int i = 0; i < n; i++) {
             WatchNext.Item it = watching.get(i);
             watchTitles[i] = TextUtils.ellipsize(it.title, tp, width, TextUtils.TruncateAt.END).toString();
@@ -3387,7 +3416,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (!watchLoaded) return;   // not read yet: saying "nothing" now could be wrong
             String text = watchAllowed ? Ui.tr("Nothing half-watched in your apps.")
                     : Ui.tr("Missing permission: pick Continue Watching again in Home Settings.");
-            c.drawText(text, MARGIN * k, (L_CARDS_TOP + 60) * k, lCardMeta);
+            c.drawText(text, MARGIN * k, ((mixedMode() ? 916 : L_CARDS_TOP) + 60) * k, lCardMeta);
             return;
         }
         if (watchTitles == null || watchTextsK != k || watchTextsGen != Ui.generation) prepareWatchTexts();
@@ -3396,7 +3425,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Cards scrolled past the left margin slide out under this edge instead of leaving a sliver there (the first
         // card's focus growth and shadow still fit).
         c.save();
-        c.clipRect(watchLeftEdge(), 0, w, h);
+        c.clipRect(watchLeftEdge(), 0, w, Math.max(h, heroLayer.getHeight()));
         for (int i = 0; i < watching.size(); i++) if (i != top) drawWatchCard(c, i);
         if (top >= 0) drawWatchCard(c, top);
         c.restore();
@@ -3445,7 +3474,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
-        Bitmap img = watchArt.get(it.pictureUri, it.pictureKey, it.bannerKey, it.pkg);
+        Bitmap img = watchArt.get(it);
         if (img != null) {
             roundImage(c, img, watchArt.shader(img), cell, r);
         } else {
@@ -3549,7 +3578,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - Continue Watching: the menu of a held card
 
     private boolean canHold() {
-        return zone == Z_WATCH && !sheetOpen && !drawerOpen && continueMode() && watchIndex < watching.size();
+        return zone == Z_WATCH && !sheetOpen && !drawerOpen && watchShown() && watchIndex < watching.size();
     }
 
     /** The focused card's menu (held OK, or TalkBack's long click). */
@@ -3886,6 +3915,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < slots; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         for (int i = 0; i < slots; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0) drawLightCard(c, top);
+        if (mixedMode()) {
+            c.drawText(Ui.tr("Continue Watching"), MARGIN * k, 880 * k, lCardTitle);
+            drawWatchRow(c);
+        }
         if (HomeData.coinCount() > 0 || playingTab != null) drawQuotes(c);
     }
 
@@ -4036,6 +4069,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_SHELF:
                 // Up from an empty shelf too: move()'s older zones (the hero, the corner capsule) aren't drawn any more.
                 if (dy >= 0) return false;
+                if (mixedMode() && !watching.isEmpty()) { zone = Z_WATCH; break; }
                 if (!picksMode()) {
                     // No tabs or picks: up goes to what you were watching, or to the corner buttons.
                     if (continueMode() && !watching.isEmpty()) {
@@ -4066,7 +4100,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     zone = Z_TOP;
                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
                 } else {
-                    zone = Z_SHELF;
+                    zone = mixedMode() && !watching.isEmpty() ? Z_WATCH : Z_SHELF;
                     if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[cardIndex].centerX());
                 }
                 break;
@@ -4076,6 +4110,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     if (next == watchIndex) return true;
                     watchIndex = next;
                 } else if (dy < 0) {
+                    if (mixedMode() && !cards.isEmpty()) { zone = Z_CARDS; break; }
                     if (lightButtons.isEmpty()) return true;
                     zone = Z_TOP;
                     topIndex = 3;

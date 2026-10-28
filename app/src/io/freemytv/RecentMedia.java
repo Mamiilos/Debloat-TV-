@@ -108,6 +108,18 @@ final class RecentMedia {
         return new File(c.getFilesDir(), "recent-enabled").isFile();
     }
 
+    static boolean artEnabled(Context c) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(new File(c.getFilesDir(), "recent-tmdb"))) {
+            return in.read() == 1;
+        } catch (Exception ignored) { return Config.WATCH_IMAGES_TMDB; }
+    }
+
+    static void setArt(Context c, boolean on) {
+        try (FileOutputStream out = new FileOutputStream(new File(c.getFilesDir(), "recent-tmdb"))) {
+            out.write(on ? 1 : 0);
+        } catch (Exception e) { problem = Ui.tr("Could not save. Try again."); }
+    }
+
     static void enable(Context c, boolean on) {
         try {
             File flag = new File(c.getFilesDir(), "recent-enabled");
@@ -219,6 +231,38 @@ final class RecentMedia {
 
     static void forgetSession(String key) {
         items.remove(key);
+    }
+
+    /** Read-only snapshot for the native home row in :home. Only :history writes the file. */
+    static List<WatchNext.Item> homeItems(Context c) {
+        List<WatchNext.Item> out = new ArrayList<>();
+        if (!enabled(c)) return out;
+        try {
+            // AtomicFile.openRead can clean up a writer's .new file; another process must read only the base file.
+            byte[] bytes = java.nio.file.Files.readAllBytes(new File(c.getFilesDir(), "recent-media.json").toPath());
+            JSONArray rows = new JSONArray(new String(bytes, StandardCharsets.UTF_8));
+            long cutoff = System.currentTimeMillis() - 90L * 86400000;
+            for (int n = 0; n < Math.min(80, rows.length()); n++) {
+                Item recent = Item.read(rows.getJSONObject(n));
+                if (recent.title.isEmpty() || recent.recency() < cutoff
+                        || recent.duration > 0 && recent.position >= recent.duration * .95
+                        || HomeApps.launchIntent(c.getPackageManager(), recent.pkg) == null) continue;
+                WatchNext.Item item = new WatchNext.Item(recent.pkg, recent.image, null);
+                item.title = recent.title;
+                item.seasonNumber = recent.season;
+                item.episodeNumber = recent.episode;
+                item.mediaType = recent.type;
+                item.releaseYear = recent.year;
+                item.episode = recent.season >= 0 && recent.episode > 0
+                        ? Ui.trf("S{season} E{episode}", "season", recent.season, "episode", recent.episode) : null;
+                item.duration = recent.duration;
+                item.position = recent.position;
+                item.engaged = recent.recency();
+                item.intent = recent.link.isEmpty() ? null : recent.link;
+                out.add(item);
+            }
+        } catch (Exception ignored) { }
+        return out;
     }
 
     static void clear(Context c, Runnable done) {
