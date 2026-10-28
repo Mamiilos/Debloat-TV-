@@ -290,8 +290,8 @@ final class Photos {
      * screensaver puts it on black or white), and enlarged to fit too when it's smaller (a preview, a phone's 1080p
      * screenshot), so it fills the screen one way; null if too small or unreadable. Decoded from a FileDescriptor (the
      * path form copies all of the file into memory first) and straight at its final size: halved while it stays larger,
-     * then scaled by the decoder itself (inDensity / inTargetDensity), so a 24 MP photo takes the result's 8 MB, not
-     * 24. Only that is turned.
+     * then scaled by the decoder itself (inDensity / inTargetDensity): a 24 MP photo is decoded at 3000 × 2000 (24 MB)
+     * and scaled into the result (8 MB) in the same call. Only that is turned.
      */
     private static Bitmap decode(File f, int w, int h) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
