@@ -293,7 +293,7 @@
   // MARK: - Focus
 
   var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, first: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0};
   var cards = [];
 
   function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG; }
@@ -306,10 +306,12 @@
       setClass(list[i], 'focus', st.zone === Z.TOP && st.top === i);
     }
     list = $('buttons').children;
-    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
-    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
-    list = $('cards').children;
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === NT + i);
+    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= NT);
+    list = cardNodes();
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
+    setClass($('cards'), 'on', st.zone === Z.CARDS);
+    if (st.zone === Z.CARDS) showCard(st.card);
     list = $('tiles').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.SHELF && st.shelf === i);
     setClass($('tiles'), 'on', st.zone === Z.SHELF);
@@ -354,15 +356,17 @@
 
   // MARK: - Top: title, tabs, buttons, quotes
 
-  var TAB_KIND = [null, 'movie', 'tv'];
+  var TAB_KIND = (Data.hasYouTube() ? ['youtube'] : []).concat(Data.hasWatchLater() ? ['later'] : [], [null, 'movie', 'tv']);
+  var NT = TAB_KIND.length, EXPLORE = TAB_KIND.indexOf(null);
+  st.tab = st.top = EXPLORE;
 
   function renderTop() {
     $('title').textContent = tr('For You');
     var tabs = $('tabs');
     tabs.innerHTML = '';
-    var names = [tr('Explore'), tr('Movies'), tr('Shows')];
-    for (var i = 0; i < 3; i++) {
-      var t = el('button', 'tab', tabs, names[i]);
+    var names = {youtube: 'YouTube', later: tr('Watch Later'), 'null': tr('Explore'), movie: tr('Movies'), tv: tr('Shows')};
+    for (var i = 0; i < NT; i++) {
+      var t = el('button', 'tab', tabs, names[String(TAB_KIND[i])]);
       hover(t, Z.TOP, i);
     }
     var buttons = $('buttons');
@@ -373,7 +377,7 @@
       r.style.left = (1596 + 88 * b) + 'px';
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
-      hover(r, Z.TOP, 3 + b);
+      hover(r, Z.TOP, NT + b);
     }
   }
 
@@ -389,30 +393,171 @@
 
   // MARK: - Picks and background
 
-  function renderCards() {
-    var list = Data.picks(TAB_KIND[st.tab]);
-    var holder = $('cards');
-    setClass(body, 'no-picks', !list.length);
-    var same = list.length === cards.length;
-    for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta;
-    if (same && holder.children.length === list.length) return;
-    cards = list;
-    holder.innerHTML = '';
-    var rects = [[80, 1040], [1160, 320], [1520, 320]];
-    for (var c = 0; c < list.length; c++) {
-      var p = list[c], card = el('div', 'card', holder);
-      card.style.left = rects[c][0] + 'px';
-      card.style.width = rects[c][1] + 'px';
-      var img = el('div', 'img', card);
-      img.style.backgroundImage = 'url(' + Data.image(p.backdrop, c === 0 ? 'w1280' : 'w780') + ')';
-      el('div', 'name', card, p.title);
-      if (c === 0 && p.meta) el('div', 'meta', card, p.meta);
-      hover(card, Z.CARDS, c);
+  var CARD_X = 80, CARD_W = 540, STRIDE = 574, VISIBLE = 3, AHEAD = 6, SKELETONS = 3, ROTATE_EVERY = 10000;
+  var cardsKind;
+
+  function kindNow() { return TAB_KIND[st.tab]; }
+
+  function cardNodes() { return $('cards').querySelectorAll('.card.real'); }
+
+  function photo(p, size) { return p.thumb || Data.image(p.backdrop, size); }
+
+  function addCard(strip, p, i) {
+    var card = el('div', 'card real' + (p.kind === 'ytlogin' || p.kind === 'ytinfo' ? ' login' : ''), strip);
+    card.style.left = (CARD_X + i * STRIDE) + 'px';
+    card.style.width = CARD_W + 'px';
+    var img = el('div', 'img', card);
+    if (p.kind === 'ytlogin' || p.kind === 'ytinfo') el('div', 'code', img, p.code || 'YouTube');
+    el('div', 'name', card, p.title);
+    if (p.meta) el('div', 'meta', card, p.meta);
+    hover(card, Z.CARDS, i);
+  }
+
+  function paintCards() {
+    var nodes = cardNodes();
+    for (var i = 0; i < nodes.length && i < cards.length; i++) {
+      var img = nodes[i].firstChild;
+      if (cards[i].kind === 'ytlogin' || cards[i].kind === 'ytinfo') continue;
+      if (i < st.first + VISIBLE + AHEAD && !img.style.backgroundImage) img.style.backgroundImage = 'url(' + photo(cards[i], 'w780') + ')';
     }
-    st.card = Math.min(st.card, Math.max(0, list.length - 1));
-    if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
-    backdrop(list.length ? Data.image(list[0].backdrop, 'w300') : '');
+  }
+
+  function renderSkeletons(strip) {
+    var old = strip.querySelectorAll('.skel');
+    for (var i = 0; i < old.length; i++) strip.removeChild(old[i]);
+    if (!Data.loading(kindNow()) && !(Data.canGrow(kindNow()) && cards.length < st.first + VISIBLE + AHEAD)) return;
+    for (var s = 0; s < SKELETONS; s++) {
+      var sk = el('div', 'card skel', strip);
+      sk.style.left = (CARD_X + (cards.length + s) * STRIDE) + 'px';
+      sk.style.width = CARD_W + 'px';
+      el('div', 'img', sk);
+      el('div', 'bar', sk);
+      el('div', 'bar short', sk);
+    }
+  }
+
+  function scrollCards() {
+    var strip = $('cards').firstChild;
+    if (strip) strip.style.webkitTransform = strip.style.transform = 'translateX(' + (-st.first * STRIDE) + 'px)';
+    paintCards();
+    markShown();
+    var lead = cards[Math.min(st.first, cards.length - 1)];
+    if (lead && lead.kind !== 'ytlogin' && lead.kind !== 'ytinfo') backdrop(photo(lead, 'w300'));
+    if (cards.length - (st.first + VISIBLE) < AHEAD && Data.canGrow(kindNow())) Data.more(kindNow());
+  }
+
+  function showCard(i) {
+    if (i < st.first) st.first = i;
+    else if (i >= st.first + VISIBLE) st.first = i - VISIBLE + 1;
+    scrollCards();
+  }
+
+  var views = {}, shown = {}, SHOWN_KEEP = 600;
+  try { shown = JSON.parse(localStorage.getItem('fmtv.shown')) || {}; } catch (e) { shown = {}; }
+
+  function pickKey(p) { return p.kind + ':' + p.id; }
+
+  function shuffle(list) {
+    for (var i = list.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1)), t = list[i];
+      list[i] = list[j];
+      list[j] = t;
+    }
+    return list;
+  }
+
+  function freshFirst(list) {
+    var never = [], before = [];
+    for (var i = 0; i < list.length; i++) (shown[pickKey(list[i])] ? before : never).push(list[i]);
+    before.sort(function (a, b) { return shown[pickKey(a)] - shown[pickKey(b)]; });
+    return shuffle(never).concat(before);
+  }
+
+  function takenElsewhere(kind) {
+    var taken = {};
+    for (var k in views) {
+      if (!views.hasOwnProperty(k) || k === String(kind)) continue;
+      var order = views[k].slice(0, views[k].first + VISIBLE + AHEAD);
+      for (var i = 0; i < order.length; i++) taken[order[i]] = true;
+    }
+    return taken;
+  }
+
+  function arranged(kind) {
+    var pool = Data.row(kind), byKey = {}, i;
+    for (i = 0; i < pool.length; i++) byKey[pickKey(pool[i])] = pool[i];
+    var view = views[String(kind)];
+    if (!view) {
+      var taken = takenElsewhere(kind), mine = [], theirs = [];
+      for (i = 0; i < pool.length; i++) (taken[pickKey(pool[i])] ? theirs : mine).push(pool[i]);
+      view = views[String(kind)] = freshFirst(mine).concat(freshFirst(theirs)).map(pickKey);
+      view.first = 0;
+    } else {
+      var known = {}, added = [];
+      for (i = 0; i < view.length; i++) known[view[i]] = true;
+      for (i = 0; i < pool.length; i++) if (!known[pickKey(pool[i])]) added.push(pool[i]);
+      var first = view.first;
+      Array.prototype.push.apply(view, freshFirst(added).map(pickKey));
+      view.first = first;
+    }
+    var out = [];
+    for (i = 0; i < view.length; i++) if (byKey[view[i]]) out.push(byKey[view[i]]);
+    return out;
+  }
+
+  function markShown() {
+    if (kindNow() === 'youtube' || kindNow() === 'later') return;
+    var now = Date.now(), changedAny = false;
+    for (var i = st.first; i < Math.min(cards.length, st.first + VISIBLE); i++) {
+      var key = pickKey(cards[i]);
+      if (!shown[key] || now - shown[key] > 60000) { shown[key] = now; changedAny = true; }
+    }
+    var view = views[String(kindNow())];
+    if (view) view.first = st.first;
+    if (!changedAny) return;
+    var keys = Object.keys(shown);
+    if (keys.length > SHOWN_KEEP) {
+      keys.sort(function (a, b) { return shown[a] - shown[b]; });
+      for (var k = 0; k < keys.length - SHOWN_KEEP; k++) delete shown[keys[k]];
+    }
+    try { localStorage.setItem('fmtv.shown', JSON.stringify(shown)); } catch (e) {}
+  }
+
+  function renderCards() {
+    var kind = kindNow(), list = kind === 'youtube' || kind === 'later' ? Data.row(kind) : arranged(kind), holder = $('cards');
+    setClass(body, 'no-picks', !list.length && !Data.loading(kind));
+    var strip = holder.firstChild;
+    var keep = strip && cardsKind === kind && list.length >= cards.length;
+    for (var i = 0; keep && i < cards.length; i++) keep = list[i].id === cards[i].id && list[i].meta === cards[i].meta;
+    if (!keep) {
+      holder.innerHTML = '';
+      strip = el('div', 'strip', holder);
+      cards = [];
+      if (cardsKind !== kind) st.first = st.card = 0;
+      cardsKind = kind;
+    }
+    for (var c = cards.length; c < list.length; c++) addCard(strip, list[c], c);
+    cards = list.slice();
+    renderSkeletons(strip);
+    st.card = Math.min(st.card, Math.max(0, cards.length - 1));
+    st.first = Math.min(st.first, Math.max(0, cards.length - VISIBLE));
+    if (!cards.length && st.zone === Z.CARDS && !Data.loading(kind)) st.zone = Z.SHELF;
+    if (!cards.length) backdrop('');
+    scrollCards();
     updateFocus();
+  }
+
+  var rotatedAt = Date.now();
+
+  function rotateCards() {
+    if (saverOn || sheetOpen() || st.zone === Z.CARDS || st.zone === Z.DRAWER) { rotatedAt = Date.now(); return; }
+    if (Date.now() - rotatedAt < ROTATE_EVERY || cards.length <= VISIBLE) return;
+    rotatedAt = Date.now();
+    var next = st.first + VISIBLE;
+    if (next + VISIBLE > cards.length) next = Data.canGrow(kindNow()) && next < cards.length ? cards.length - VISIBLE : 0;
+    st.first = Math.max(0, next);
+    st.card = st.first;
+    scrollCards();
   }
 
   var bgUrl = null, bgFront = 'bgA';
@@ -699,6 +844,10 @@
           step: function () { if (Prefs.quotes()) { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); } }});
       })(i);
     }
+    if (Data.youTubeSignedIn()) {
+      rows.push({label: tr('YouTube account'), value: tr('Sign out'), opens: true,
+        step: function (d) { if (d >= 0) { Data.youTubeSignOut(); toast(tr('Signed out of YouTube')); } }});
+    }
     rows.push({label: tr('Shelf'), value: '›', step: function (d) { if (d >= 0) openShelfEdit(); }});
     rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
     return rows;
@@ -865,6 +1014,14 @@
     };
   }
 
+  function openVideo(v) {
+    var app = Data.youTubeApp();
+    if (!app) return;
+    TV.launch(app.id, {contentTarget: 'v=' + v.id}, function (ok) {
+      if (!ok) toast(trf("Couldn't open {app}.", {app: app.title}));
+    });
+  }
+
   function tvSettings() {
     TV.settings(function (ok) {
       if (!ok) toast(tr("Couldn't open TV Settings"));
@@ -879,13 +1036,16 @@
   function activate() {
     switch (st.zone) {
       case Z.TOP:
-        if (st.top < 3) return;
-        if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
-        else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
+        if (st.top < NT) return;
+        if (st.top === NT) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
+        else if (st.top === NT + 1) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
         else openSettings();
         return;
       case Z.CARDS:
-        var p = cards[st.card], app = p && Data.appFor(p.app);
+        var p = cards[st.card];
+        if (p && p.kind === 'youtube') { openVideo(p); return; }
+        if (p && p.kind === 'ytlogin') { Data.youTubeLogin(); return; }
+        var app = p && Data.appFor(p.app);
         if (app) launcher(app.id, app.title)();
         return;
       case Z.SHELF:
@@ -912,31 +1072,41 @@
   function selectTab(i) {
     if (i === st.tab) return;
     st.tab = i;
+    delete views[String(kindNow())];
+    cardsKind = undefined;
+    st.first = st.card = 0;
+    rotatedAt = Date.now();
     renderCards();
+    Data.fresh(kindNow());
+    if (kindNow() === 'later') Data.reloadLater();
   }
 
   function move(dx, dy) {
-    var tiles = $('tiles').children, cardNodes = $('cards').children;
+    var tiles = $('tiles').children, shown = cardNodes();
     switch (st.zone) {
       case Z.SHELF:
         if (dx) st.shelf = Math.max(0, Math.min(shelf.length - 1, st.shelf + dx));
         else if (dy > 0) { openDrawer(); return; }
         else if (dy < 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
-          else { st.zone = Z.TOP; st.top = st.tab; }
+          if (cards.length) {
+            var seen = Array.prototype.slice.call(shown, st.first, st.first + VISIBLE);
+            st.zone = Z.CARDS;
+            st.card = st.first + nearest(seen, centerX(tiles[st.shelf]));
+          } else { st.zone = Z.TOP; st.top = st.tab; }
         }
         break;
       case Z.CARDS:
         if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
         else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
-        else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
+        else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(shown[st.card])); }
+        rotatedAt = Date.now();
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(0, Math.min(5, st.top + dx));
-          if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
+          st.top = Math.max(0, Math.min(NT + 2, st.top + dx));
+          if (st.top < NT) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
+          if (cards.length) { st.zone = Z.CARDS; st.card = st.top < NT ? st.first : Math.min(cards.length - 1, st.first + VISIBLE - 1); }
           else st.zone = Z.SHELF;
         }
         break;
@@ -983,7 +1153,7 @@
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
       st.zone = zone;
-      if (zone === Z.TOP) { st.top = index; if (index < 3) selectTab(index); }
+      if (zone === Z.TOP) { st.top = index; if (index < NT) selectTab(index); }
       else if (zone === Z.CARDS) st.card = index;
       else if (zone === Z.SHELF) st.shelf = index;
       else if (zone === Z.DRAWER) st.drawer = index;
@@ -1027,9 +1197,12 @@
     return Data.showcase().filter(function (p) { return p.backdrop && Data.appFor(p.app); });
   }
 
+  var saverPick = null;
+
   function showSaver() {
     var photos = saverPhotos();
     saverOn = true;
+    saverPick = null;
     var s = $('saver');
     s.innerHTML = '';
     var a = el('div', 'photo', s), b = el('div', 'photo', s);
@@ -1038,15 +1211,30 @@
     el('div', 'time', clock);
     el('div', 'date', clock);
     el('div', 'title', clock);
+    var info = el('div', 'info', s);
+    var from = el('div', 'from', info), name = el('div', 'name', info), meta = el('div', 'meta', info);
+    var cta = el('div', 'cta', info);
+    var upNext = el('div', 'next', s);
     var front = a;
     function next() {
       if (!saverOn) return;
       var p = photos.length ? photos[saverIndex++ % photos.length] : null;
       var back = front === a ? b : a;
       if (p) {
+        var app = Data.appFor(p.app);
+        saverPick = p;
         back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'original') + ')';
         back.style.webkitTransform = back.style.transform = 'scale(1.0)';
-        clock.lastChild.textContent = p.title;
+        clock.lastChild.textContent = '';
+        from.textContent = app ? app.title : '';
+        name.textContent = p.title;
+        meta.textContent = p.meta || '';
+        cta.textContent = app ? trf('OK: watch on {app}', {app: app.title}) : '';
+        upNext.innerHTML = '';
+        for (var k = 0; k < Math.min(3, photos.length - 1); k++) {
+          var q = photos[(saverIndex + k) % photos.length], thumb = el('div', 'thumb', upNext);
+          thumb.style.backgroundImage = 'url(' + Data.image(q.backdrop, 'w300') + ')';
+        }
         setTimeout(function () {
           setClass(back, 'on', true);
           setClass(front, 'on', false);
@@ -1079,10 +1267,18 @@
     return false;
   }
 
+  function openSaverPick() {
+    var app = saverPick && Data.appFor(saverPick.app);
+    hideSaver();
+    idleAt = Date.now();
+    if (app) launcher(app.id, app.title)();
+  }
+
   // MARK: - Keys
 
   document.addEventListener('keydown', function (e) {
     var k = e.keyCode;
+    if (saverOn && k === TV.keys.ok) { e.preventDefault(); openSaverPick(); return; }
     if (poke()) { e.preventDefault(); return; }   // the first press only wakes the screen
     if (k === TV.keys.left) move(-1, 0);
     else if (k === TV.keys.right) move(1, 0);
@@ -1136,7 +1332,7 @@
     closeSheets();
     st.zone = Z.SHELF;
     st.shelf = 0;
-    if (st.tab !== 0) { st.tab = 0; renderCards(); }
+    if (st.tab !== EXPLORE) { st.tab = EXPLORE; renderCards(); }
     updateFocus();
   }
 
@@ -1180,6 +1376,7 @@
     if (!saverOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) showSaver();
     if (saverOn) tickSaverClock($('saver').querySelector('.clock'));
   }, 30000);
+  setInterval(rotateCards, 1000);
 
   // For the browser preview and tests.
   window.FreeMyTV = {state: st, move: move, activate: activate, back: back, showSaver: showSaver, hideSaver: hideSaver, toast: toast};
