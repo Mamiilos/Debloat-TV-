@@ -106,3 +106,68 @@ test('preflight and health need no token, and health holds no secrets', async ()
   assert.equal(h.status, 200);
   assert.doesNotMatch(await h.text(), /secret-token|ukho"/);
 });
+
+function fakeGitHub(overrides = {}) {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    calls.push(u);
+    assert.equal(init.headers.Authorization, 'Bearer gh-token');
+    if (overrides.down) return new Response('', { status: 502 });
+    if (u.includes('/user/repos')) {
+      return new Response(JSON.stringify([
+        { full_name: 'me/a', default_branch: 'main', archived: false },
+        { full_name: 'me/old', default_branch: 'main', archived: true },
+        { full_name: 'me/b', default_branch: 'trunk', archived: false },
+        { full_name: 'me/c', default_branch: 'main', archived: false },
+      ]));
+    }
+    if (u.includes('/actions/runs')) {
+      const run = u.includes('me/a') ? { status: 'completed', conclusion: 'success' }
+        : u.includes('me/b') ? { status: 'completed', conclusion: 'failure' } : null;
+      return new Response(JSON.stringify({ workflow_runs: run ? [run] : [] }));
+    }
+    if (u.includes('/dependabot/alerts')) return u.includes('me/a') ? new Response(JSON.stringify([{}, {}])) : new Response('', { status: 403 });
+    if (u.includes('/search/issues')) {
+      const q = decodeURIComponent(u.split('q=')[1]);
+      return new Response(JSON.stringify({ total_count: q.includes('review-requested') ? 3 : q.includes('status:failure') ? 1 : 2 }));
+    }
+    return new Response('', { status: 404 });
+  };
+  return calls;
+}
+
+test('dashboard: counts across recent unarchived repos, no names, cached 3 min', async () => {
+  env.GITHUB_TOKEN = 'gh-token';
+  env.GITHUB_RECENT = '3';
+  const calls = fakeGitHub();
+  const r = await authed('/v1/dashboard');
+  assert.equal(r.status, 200);
+  const text = await r.text();
+  const d = JSON.parse(text);
+  assert.equal(d.repos, 3);
+  assert.deepEqual(d.builds, { passing: 1, failing: 1, running: 0 });   // me/c has no Actions: neither
+  assert.equal(d.alerts, 2);                                            // me/b's 403 counts as none
+  assert.equal(d.reviews, 3);
+  assert.deepEqual(d.pullRequests, { open: 2, failing: 1 });
+  assert.doesNotMatch(text, /me\/|"a"|old/);
+  assert.ok(calls.some((u) => u.includes('me/b/actions/runs') && u.includes('branch=trunk')));
+  assert.ok(!calls.some((u) => u.includes('me/old')));
+  const n = calls.length;
+  await authed('/v1/dashboard');
+  assert.equal(calls.length, n);
+});
+
+test('dashboard: without GITHUB_TOKEN 503; GitHub down serves the last counts, stale', async () => {
+  assert.equal((await authed('/v1/dashboard')).status, 503);
+  env.GITHUB_TOKEN = 'gh-token';
+  fakeGitHub();
+  await authed('/v1/dashboard');
+  for (const [k, v] of env.CACHE.m) if (k === 'dashboard') env.CACHE.m.set(k, JSON.stringify({ ...JSON.parse(v), fetchedAt: 1 }));
+  fakeGitHub({ down: true });
+  const d = await (await authed('/v1/dashboard')).json();
+  assert.equal(d.stale, true);
+  assert.match(d.error, /HTTP 502/);
+  assert.equal(d.reviews, 3);
+  assert.match((await (await get('/health')).json()).sources.dashboard.error, /HTTP 502/);
+});

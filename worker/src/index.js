@@ -3,11 +3,13 @@
  * holds only TV_TOKEN, read-only and rotatable. KV keeps each source's last success and failure (/health), and the
  * answers of sources whose terms allow it (cached); never UKHO's.
  *
- *   GET /v1/tides   the next week of high and low water at STATIONS (UKHO's Admiralty API, asked every time)
+ *   GET /v1/tides       the next week of high and low water at STATIONS (UKHO's Admiralty API, asked every time)
+ *   GET /v1/dashboard   counts for GitHub: the latest builds, reviews waiting, your PRs, Dependabot alerts (3 min cache)
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
- * Secrets: TV_TOKEN, UKHO_KEY. Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
- * separated; empty = any).
+ * Secrets: TV_TOKEN, UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
+ * separated; empty = any), GITHUB_RECENT (how many recently pushed repos, 6).
+ * The dashboard holds counts only, never repo names or titles: the TV is a shared screen.
  */
 
 const DAY = 86400000;
@@ -147,9 +149,55 @@ async function tides(env) {
   return { stations: out };
 }
 
+// MARK: GitHub
+
+const DASHBOARD_FRESH = 3 * 60000;
+
+async function github(env, path) {
+  const r = await fetch('https://api.github.com' + path, {
+    headers: { Authorization: 'Bearer ' + env.GITHUB_TOKEN, Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'freemytv-bff' },
+  });
+  if (!r.ok) {
+    const e = new Error(`GitHub ${path.split('?')[0]}: HTTP ${r.status}`);
+    e.status = r.status;
+    throw e;
+  }
+  return r.json();
+}
+
+const searchCount = async (env, q) => (await github(env, '/search/issues?per_page=1&q=' + encodeURIComponent(q))).total_count;
+
+/** Counts across the most recently pushed repos: never names (a repo without Actions or Dependabot counts as neither). */
+async function dashboard(env) {
+  const n = Math.min(Math.max(parseInt(env.GITHUB_RECENT || '6', 10) || 6, 1), 20);
+  const repos = (await github(env, `/user/repos?sort=pushed&affiliation=owner&per_page=${n + 10}`))
+    .filter((r) => !r.archived).slice(0, n);
+  const builds = { passing: 0, failing: 0, running: 0 };
+  let alerts = 0;
+  await Promise.all(repos.map(async (r) => {
+    const runs = await github(env, `/repos/${r.full_name}/actions/runs?per_page=1&branch=${encodeURIComponent(r.default_branch)}`)
+      .catch(() => ({ workflow_runs: [] }));
+    const run = runs.workflow_runs[0];
+    if (run && run.status !== 'completed') builds.running++;
+    else if (run && ['success', 'skipped', 'neutral'].includes(run.conclusion)) builds.passing++;
+    else if (run) builds.failing++;
+    // Off, or the token can't see them: 403/404. Counted as none, not as a failure of the whole card.
+    const open = await github(env, `/repos/${r.full_name}/dependabot/alerts?state=open&per_page=100`).catch(() => []);
+    alerts += Array.isArray(open) ? open.length : 0;
+  }));
+  const [reviews, mine, mineFailing] = await Promise.all([
+    searchCount(env, 'is:pr is:open archived:false review-requested:@me'),
+    searchCount(env, 'is:pr is:open archived:false author:@me'),
+    searchCount(env, 'is:pr is:open archived:false author:@me status:failure'),
+  ]);
+  return { repos: repos.length, builds, reviews, pullRequests: { open: mine, failing: mineFailing }, alerts };
+}
+
 async function health(env) {
   const sources = {};
   for (const s of stations(env)) sources['tides:' + s.id] = (await env.CACHE.get('health:tides:' + s.id, 'json')) || {};
+  if (env.GITHUB_TOKEN) sources.dashboard = (await env.CACHE.get('health:dashboard', 'json')) || {};
   return { ok: true, now: Date.now(), sources };
 }
 
@@ -165,6 +213,11 @@ export default {
     if (!env.TV_TOKEN || !sameSecret(auth, 'Bearer ' + env.TV_TOKEN)) return json({ error: 'token' }, 401);
     try {
       if (path === '/v1/tides') return json(await tides(env));
+      if (path === '/v1/dashboard') {
+        if (!env.GITHUB_TOKEN) return json({ error: 'no GITHUB_TOKEN' }, 503);
+        const c = await cached(env, 'dashboard', DASHBOARD_FRESH, () => dashboard(env));
+        return json({ ...c.data, fetchedAt: c.fetchedAt, stale: c.stale, error: c.error });
+      }
     } catch (e) {
       console.error(JSON.stringify({ path, error: String(e.message || e) }));
       return json({ error: 'upstream' }, 502);

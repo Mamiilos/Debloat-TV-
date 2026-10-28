@@ -606,7 +606,8 @@
     var d = $('drawer');
     var old = d.querySelectorAll('.panel');
     for (var o = 0; o < old.length; o++) d.removeChild(old[o]);
-    var wx = Prefs.weather(), coins = Data.activeCoins(), qt = coins.length > 0;
+    // In work hours the GitHub counts take the prices' place (tv.properties: dashboard, work_hours).
+    var wx = Prefs.weather(), dash = Data.dashboard, coins = Data.activeCoins(), qt = !!dash || coins.length > 0;
     var split = 80 + 1760 * 0.585;
     if (wx) {
       var w = el('div', 'panel glass', d);
@@ -617,11 +618,11 @@
     }
     if (qt) {
       var q = el('div', 'panel glass', d);
-      q.id = 'prices';
+      q.id = dash ? 'dashboard' : 'prices';
       var left = wx ? split + 16 : 80;
       q.style.left = left + 'px';
       q.style.width = (1840 - left) + 'px';
-      renderPrices(q, coins);
+      if (dash) renderDashboard(q, dash); else renderPrices(q, coins);
     }
   }
 
@@ -677,6 +678,26 @@
       el('span', 'p', row, Data.money(Data.prices[i]));
       var ch = Data.changes[i];
       if (!isNaN(ch)) el('span', 'c ' + (ch >= 0 ? 'up' : 'down'), row, Data.change(ch));
+    }
+  }
+
+  /** Counts only, never repo names or titles: the TV is a shared screen. Red only for what needs you. */
+  function renderDashboard(card, d) {
+    el('div', 'head', card, 'GitHub');
+    var stale = Data.staleness(Data.dashboardAt, 3 * 60000);
+    el('div', 'side', card, stale ? trf('quotes|{ago}', {ago: stale}) : trf('Recent repos: {n}', {n: d.repos}));
+    var rows = [
+      [tr('Builds'), trf('{n} passing', {n: d.builds.passing}), d.builds.failing ? trf('{n} failing', {n: d.builds.failing}) : ''],
+      [tr('To review'), String(d.reviews), ''],
+      [tr('My pull requests'), trf('{n} open', {n: d.pullRequests.open}), d.pullRequests.failing ? trf('{n} failing', {n: d.pullRequests.failing}) : ''],
+      [tr('Security alerts'), d.alerts ? '' : '0', d.alerts ? String(d.alerts) : '']
+    ];
+    for (var j = 0; j < rows.length; j++) {
+      var row = el('div', 'row', card);
+      row.style.top = (80 + 50 * j) + 'px';
+      el('span', 'n', row, rows[j][0]);
+      el('span', 'p' + (rows[j][2] ? '' : ' alone'), row, rows[j][1]);
+      if (rows[j][2]) el('span', 'c down', row, rows[j][2]);
     }
   }
 

@@ -318,6 +318,38 @@ var Data = (function () {
     return failures.tides;
   }
 
+  // MARK: - Dashboard (the Worker's GitHub counts): only in work hours, so the family TV isn't a pager
+
+  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  /** "Mon-Fri 09:00-17:30" (or empty: always). An hour range past midnight (22:00-02:00) wraps. */
+  function inWorkHours(at) {
+    var m = /^(\w{3})(?:-(\w{3}))?\s+(\d\d):(\d\d)-(\d\d):(\d\d)$/.exec((WORKER.workHours || '').replace(/^\s+|\s+$/g, ''));
+    if (!m) return !WORKER.workHours;
+    var d = new Date(at), day = d.getDay(), from = DAYS.indexOf(m[1]), to = m[2] ? DAYS.indexOf(m[2]) : from;
+    var mins = d.getHours() * 60 + d.getMinutes(), start = +m[3] * 60 + +m[4], end = +m[5] * 60 + +m[6];
+    var onDay = from <= to ? day >= from && day <= to : day >= from || day <= to;
+    return onDay && (start <= end ? mins >= start && mins < end : mins >= start || mins < end);
+  }
+
+  var dash = null, dashAt = 0, fetchingDash = false;
+
+  function refreshDashboard() {
+    var now = Date.now();
+    if (!WORKER.url || !WORKER.dashboard) return;
+    if (!inWorkHours(now)) { if (dash) { dash = null; dashAt = 0; changed(); } return; }
+    if (fetchingDash || (now - dashAt < 3 * 60000 && now >= dashAt)) return;
+    fetchingDash = true;
+    get(WORKER.url.replace(/\/+$/, '') + '/v1/dashboard', {Authorization: 'Bearer ' + WORKER.token}, function (err, body) {
+      fetchingDash = false;
+      if (!err && !(body && body.builds)) err = new Error('no counts');
+      noteFetch('dashboard', err || (body.stale && body.error ? new Error(body.error) : null));
+      if (err) return;
+      dash = body;
+      dashAt = body.fetchedAt || Date.now();
+      changed();
+    });
+  }
+
   // MARK: - Picks (TMDB)
 
   var KEY = Prefs.tmdbKey();
@@ -654,7 +686,10 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); refreshDashboard(); },
+    /** The GitHub counts while in work hours ({repos, builds, reviews, pullRequests, alerts}), else null. */
+    get dashboard() { return WORKER.dashboard && inWorkHours(Date.now()) ? dash : null; },
+    get dashboardAt() { return dashAt; },
     tideHighs: nextHighs,
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     findCity: findCity,
@@ -671,6 +706,7 @@ var Data = (function () {
       if (activeCoins().length) out.push({name: tr('Crypto'), at: pricesAt, failed: failures.prices});
       if (KEY) out.push({name: tr('Picks'), at: listAt, failed: failures.picks});
       if (WORKER.url && WORKER.tides) out.push({name: tr('Tides'), at: tidesAt, failed: tidesFailure()});
+      if (WORKER.url && WORKER.dashboard) out.push({name: 'GitHub', at: dashAt, failed: failures.dashboard});
       for (var i = 0; i < out.length; i++) if (out[i].failed && out[i].failed.at < out[i].at) out[i].failed = null;
       return out;
     },

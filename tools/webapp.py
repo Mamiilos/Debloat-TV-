@@ -68,7 +68,8 @@ def read_config(path):
         'drawerFirst': values.get('drawer_first', 'false').lower() == 'true',
         # The Worker (worker/): its address and the TV's read-only token; tides=true shows UKHO's on the weather card.
         'worker': {'url': values.get('worker_url', ''), 'token': values.get('worker_token', ''),
-                   'tides': values.get('tides', 'false').lower() == 'true'},
+                   'tides': values.get('tides', 'false').lower() == 'true',
+                   'dashboard': values.get('dashboard', 'false').lower() == 'true', 'workHours': values.get('work_hours', '')},
         # What was built, for About this TV (written by scripts/tvconfig.py; empty otherwise).
         'build': {'commit': values.get('build_commit', ''), 'tag': values.get('build_tag', ''),
                   'settings': values.get('settings_hash', ''), 'devModeUntil': int(values.get('devmode_until', '0') or 0)},

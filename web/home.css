@@ -455,6 +455,12 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #prices .coin .p { position: absolute; right: 128px; top: 1px; font-size: 26px; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
 #prices .coin .c { position: absolute; right: 0; top: 2px; width: 108px; height: 34px; line-height: 34px; border-radius: 17px; text-align: center; font-size: 21px; font-weight: 600; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
 #prices .up { color: #248A3D; background: rgba(36, 138, 61, 0.2); }
+#dashboard .row { position: absolute; left: 34px; right: 34px; height: 40px; font-size: 27px; font-weight: 500; white-space: nowrap; }
+#dashboard .n { position: absolute; left: 0; top: 0; }
+#dashboard .p { position: absolute; right: 150px; top: 1px; font-size: 26px; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
+#dashboard .p.alone { right: 0; }
+#dashboard .c { position: absolute; right: 0; top: 2px; min-width: 50px; padding: 0 14px; height: 34px; line-height: 34px; border-radius: 17px; text-align: center; font-size: 21px; font-weight: 600; color: #D70015; background: rgba(215, 0, 21, 0.2); }
+.night #dashboard .c { color: #FF453A; background: rgba(255, 69, 58, 0.2); }
 #prices .down { color: #D70015; background: rgba(215, 0, 21, 0.2); }
 .night #prices .coin svg { fill: rgba(255, 255, 255, 0.8); }
 .night #prices .up { color: #30D158; background: rgba(48, 209, 88, 0.2); }
