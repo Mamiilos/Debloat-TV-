@@ -1606,7 +1606,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean scrolls = shelf.size() > shelfVisible;
         if (scrolls) {
             c.save();
-            c.clipRect(platterRect.left, 0, platterRect.right, h);
+            // The shelf can sit below the viewport before focus scrolls it into view. Clip in the layer's
+            // content coordinates, not at the physical screen's bottom, or every app tile gets cut away.
+            c.clipRect(platterRect.left, tiles.getTop(), platterRect.right, tiles.getBottom());
         }
         for (int pass = 0; pass < 2; pass++) {
             for (int i = 0; i < shelf.size(); i++) {
