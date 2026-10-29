@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -33,6 +34,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def adb(*args, **kw):
+    # Not this process's stdin: `adb shell` would read the key piped in for `content write` (and send it to the TV).
+    if 'input' not in kw:
+        kw['stdin'] = subprocess.DEVNULL
     return subprocess.run(['adb', *SERIAL, *args], capture_output=True, **kw)
 
 
@@ -57,6 +61,17 @@ def received(name):
     if not m:
         return None
     return int(m.group(2)) if m.group(1) == '1' else 0
+
+
+def settled(name, done):
+    """received(name) once done(it) holds, or its last answer: the app renames the key into place only when the
+    write closes, a moment after adb has returned."""
+    for _ in range(10):
+        r = received(name)
+        if done(r):
+            return r
+        time.sleep(0.5)
+    return r
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -203,7 +218,7 @@ def main():
 
     if remove:
         adb('shell', 'content', 'delete', '--uri', URI + name)
-        if received(name) != 0:
+        if settled(name, lambda r: r == 0) != 0:
             print(f'{name} is still on the TV: try again.')
             return 1
         print(f'{name} is off the TV.')
@@ -219,7 +234,7 @@ def main():
             return 1
     adb('exec-in', 'content', 'write', '--uri', URI + name, input=key.encode() + b'\n')
     # exec-in says nothing of what the TV did (it returns 0 either way): the TV's own answer tells
-    after = received(name)
+    after = settled(name, lambda r: bool(r) and r != before)
     if not after or after == before:
         print(f'The TV didn\'t take {name}: it keeps one line of 8 or more printable characters. Nothing changed.')
         return 1
