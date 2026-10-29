@@ -3,6 +3,7 @@ package io.freemytv;
 import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.database.Cursor;
+import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Handler;
@@ -20,6 +21,8 @@ import java.nio.file.Files;
  * installed one): `adb exec-in content write --uri content://io.freemytv.homeassistant/token?size=<bytes>`, and
  * `adb shell content delete --uri content://io.freemytv.homeassistant/token` takes it away. Only adb's shell (or root)
  * may; it lands in the app's private files (HomeAssistant.TOKEN_FILE), and only builds with an address take it.
+ * `content query` on the same address says whether one is there (never what), so the tool can prove it arrived:
+ * exec-in returns 0 whatever the TV printed.
  */
 public class HomeAssistantInbox extends ContentProvider {
     /** adb's shell (Process.SHELL_UID, which the SDK only names from Android 10). */
@@ -29,10 +32,14 @@ public class HomeAssistantInbox extends ContentProvider {
         return true;
     }
 
-    private static void check(Uri uri) throws FileNotFoundException {
+    private static void caller(Uri uri) throws FileNotFoundException {
         int caller = Binder.getCallingUid();
         if (caller != SHELL_UID && caller != 0) throw new SecurityException("only adb sends the Home Assistant token");
         if (!"token".equals(uri.getLastPathSegment())) throw new FileNotFoundException("content://io.freemytv.homeassistant/token");
+    }
+
+    private static void check(Uri uri) throws FileNotFoundException {
+        caller(uri);
         if (!HomeAssistant.offered()) throw new FileNotFoundException("this build has no home_assistant_url");
     }
 
@@ -81,7 +88,17 @@ public class HomeAssistantInbox extends ContentProvider {
         return new File(getContext().getFilesDir(), HomeAssistant.TOKEN_FILE).delete() ? 1 : 0;
     }
 
-    @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String sort) { return null; }
+    /** One row: offered (this build has an address, 1/0) and present (a token is kept, 1/0). Never the token. */
+    @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String sort) {
+        try {
+            caller(uri);
+        } catch (FileNotFoundException e) {
+            return null;
+        }
+        MatrixCursor c = new MatrixCursor(new String[] {"offered", "present"});
+        c.addRow(new Object[] {HomeAssistant.offered() ? 1 : 0, HomeAssistant.hasToken(getContext()) ? 1 : 0});
+        return c;
+    }
     @Override public String getType(Uri uri) { return null; }
     @Override public Uri insert(Uri uri, ContentValues values) { return null; }
     @Override public int update(Uri uri, ContentValues values, String selection, String[] args) { return 0; }

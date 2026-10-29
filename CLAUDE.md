@@ -391,12 +391,15 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   does (any app can read an installed APK, and a token reaches every service): it's theirs and secret, like `tmdb_key`,
   and they send it themselves with `python3 tools/home_assistant.py <IP>` (it asks without showing it; don't ask for it in
   the chat), over `adb exec-in content write` into `HomeAssistantInbox` (adb's shell only, `?size=` checked), which keeps
-  it in the app's private files; `--forget` deletes it. Until it's there the row shows Unavailable
-  (`Capabilities.NEED_HOME_ASSISTANT`). On, the entities are a third group of tiles in the bottom drawer
-  (`HomeApps.HOME_ASSISTANT`), read when it opens and every 30 s while it's open, and OK calls their service
-  (`/api/services`). Only `HomeAssistant.DOMAINS`, at most 8: locks and alarms are never offered, nor covers whose
-  `device_class` is garage, gate or door (a cover shows only once its class is read). Redirects aren't followed. The
-  address goes through `lan_server` in `build.sh`: plain HTTP only to the local network.
+  it in the app's private files; `--forget` deletes it. `exec-in` returns 0 whatever the TV printed, so the tool proves
+  it with `content query` on the inbox (one row: `offered`, `present`, never the token) and needs Android 9 (`content
+  write`). Until it's there the row shows Unavailable (`Capabilities.NEED_HOME_ASSISTANT`). On, the entities are a
+  third group of tiles in the bottom drawer (`HomeApps.HOME_ASSISTANT`), read when it opens and every 30 s while it's
+  open, and OK calls their service (`/api/services`). Only `HomeAssistant.DOMAINS`, at most 8: locks and alarms are
+  never offered, and covers only of `HomeAssistant.SAFE_COVERS` (awning, blind, curtain, shade, shutter; not garage
+  doors, gates, doors or a cover with no class), once its class is read. The UI thread never reads the token file
+  (`itemsNow`, `onNow`). Redirects aren't followed. The address goes through `lan_server` in `build.sh`: plain HTTP
+  only to the local network.
 - What's playing (`NowPlaying`) comes from the apps' media sessions, which Android hands only to an allowed notification
   listener. A listener could read every notification, so ours follows Home Settings' *Now Playing widget* (off by
   default): turning it on allows it through ADB (`HomeMode.nowPlayingAccess`, `cmd notification allow_listener`; the

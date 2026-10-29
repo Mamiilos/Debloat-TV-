@@ -29,8 +29,9 @@ import java.util.concurrent.Executors;
  * (config.properties: home_assistant_url, _entities); the token never does: tools/home_assistant.py sends it over adb
  * into the app's private files (HomeAssistantInbox), since an APK on the TV can be read by any app on it. Nothing runs
  * until Home Settings › Home Assistant is on: then the drawer reads the entities' states while it is open (when it
- * opens, then every 30 s) and OK calls the entity's service. The only host is the server you name. Locks, alarms, garage
- * doors and gates, and every other domain outside DOMAINS, are never offered: anyone in the room can press a TV remote.
+ * opens, then every 30 s) and OK calls the entity's service. The only host is the server you name. Locks, alarms, covers
+ * outside SAFE_COVERS (garage doors and gates, and those without a class), and every other domain outside DOMAINS, are
+ * never offered: anyone in the room can press a TV remote.
  */
 final class HomeAssistant {
     private HomeAssistant() {}
@@ -43,8 +44,12 @@ final class HomeAssistant {
     /** While the drawer is open, the states are read again this often. */
     static final long REFRESH_MS = 30_000;
 
-    /** Covers that open a way into the house: left out like locks (Home Assistant's cover device classes). */
-    static final List<String> RISKY_COVERS = Collections.unmodifiableList(Arrays.asList("garage", "gate", "door"));
+    /**
+     * The only covers offered, by Home Assistant's device class: what shades a window. Garage doors, gates and doors open a
+     * way into the house, like locks, and many template and MQTT garage doors have no class: those are left out.
+     */
+    static final List<String> SAFE_COVERS = Collections.unmodifiableList(
+            Arrays.asList("awning", "blind", "curtain", "shade", "shutter"));
     /** In the app's private files, written only by HomeAssistantInbox. */
     static final String TOKEN_FILE = "home-assistant-token";
 
@@ -86,11 +91,11 @@ final class HomeAssistant {
             return state.equals("unavailable");
         }
 
-        /** A tile can be shown: a cover only once its class is known, and never a garage door, a gate or a door. */
+        /** A tile can be shown: a cover only once its class is read, and only one of SAFE_COVERS. */
         boolean offered() {
             if (!domain.equals("cover")) return true;
             String dc = deviceClass;
-            return dc != null && !RISKY_COVERS.contains(dc);
+            return dc != null && SAFE_COVERS.contains(dc);
         }
     }
 
@@ -102,6 +107,8 @@ final class HomeAssistant {
     });
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile boolean names, fetching;
+    /** Whether the token file was there at the last look (hasToken, token()): what the UI thread goes by. */
+    private static volatile boolean tokenThere;
     private static volatile long readAt;
 
     /** Built with an address and entities (Config.HOME_ASSISTANT): only then is there a Home Settings row. */
@@ -119,19 +126,32 @@ final class HomeAssistant {
         return offered() && hasEntities() && hasToken(c);
     }
 
-    /** Configured and turned on in Home Settings. */
+    /** Configured and turned on in Home Settings. Looks at the token file: not for the UI thread (onNow). */
     static boolean on(Context c) {
         return Prefs.homeAssistant() && configured(c);
+    }
+
+    /** on(), with the token as last seen: no file read, for the UI thread. A token taken away shows at the next read. */
+    private static boolean onNow() {
+        return Prefs.homeAssistant() && offered() && hasEntities() && tokenThere;
     }
 
     static List<Control> controls() {
         return CONTROLS;
     }
 
-    /** The drawer's tiles, one per entity, with the names last read from the server. */
+    /** The drawer's tiles, one per entity, with the names last read from the server. Off the UI thread (it reads files). */
     static List<HomeApps.Item> items(Context c) {
+        return on(c) ? tiles(c) : new ArrayList<>();
+    }
+
+    /** items(), with the token as last seen: for the UI thread, once items() or a read has run. */
+    static List<HomeApps.Item> itemsNow(Context c) {
+        return onNow() ? tiles(c) : new ArrayList<>();
+    }
+
+    private static List<HomeApps.Item> tiles(Context c) {
         List<HomeApps.Item> out = new ArrayList<>();
-        if (!on(c)) return out;
         loadNames(c);
         for (Control ctl : CONTROLS) {
             if (ctl.offered()) out.add(HomeApps.homeAssistant(ctl, symbol(ctl.domain)));
@@ -160,7 +180,7 @@ final class HomeAssistant {
      * when they're in, and then items() may have changed (a cover shows once its class is known, or goes).
      */
     static void refresh(Context c, Runnable done) {
-        if (!on(c) || fetching) return;
+        if (!onNow() || fetching) return;
         fetching = true;
         final Context app = c.getApplicationContext();
         IO.execute(() -> {
@@ -194,8 +214,8 @@ final class HomeAssistant {
             if (!name.isEmpty()) ctl.name = name;
             if (ctl.domain.equals("cover")) {
                 String dc = attributes == null ? "" : attributes.optString("device_class", "").trim().toLowerCase(Locale.ROOT);
-                if (RISKY_COVERS.contains(dc) && !RISKY_COVERS.contains(String.valueOf(ctl.deviceClass))) {
-                    AppLog.w("home assistant: " + ctl.entity + " left out (a " + dc + ")");
+                if (!SAFE_COVERS.contains(dc) && !dc.equals(ctl.deviceClass)) {
+                    AppLog.w("home assistant: " + ctl.entity + " left out (" + (dc.isEmpty() ? "a cover without a class" : "a " + dc) + ")");
                 }
                 ctl.deviceClass = dc;
             }
@@ -224,7 +244,7 @@ final class HomeAssistant {
      * call failed. `result` runs on the main thread.
      */
     static void activate(Context c, Control ctl, Result result) {
-        if (!on(c) || ctl.unavailable() || !ctl.offered()) {
+        if (!onNow() || ctl.unavailable() || !ctl.offered()) {
             if (result != null) result.done(false);
             return;
         }
@@ -302,16 +322,18 @@ final class HomeAssistant {
     }
 
     static boolean hasToken(Context c) {
-        return tokenFile(c).length() > 0;
+        return tokenThere = tokenFile(c).length() > 0;
     }
 
     /** Read at each round, so a token sent (or taken away) while the home screen runs counts at once. Never logged. */
     private static String token(Context c) throws IOException {
         try {
             String t = new String(Files.readAllBytes(tokenFile(c).toPath()), StandardCharsets.UTF_8).trim();
+            tokenThere = !t.isEmpty();
             if (t.isEmpty()) throw new IOException("no token: send it with tools/home_assistant.py");
             return t;
         } catch (java.nio.file.NoSuchFileException e) {
+            tokenThere = false;
             throw new IOException("no token: send it with tools/home_assistant.py");
         }
     }
