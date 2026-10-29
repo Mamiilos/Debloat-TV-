@@ -8,14 +8,12 @@ import android.os.Looper;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -26,10 +24,10 @@ import java.util.concurrent.Executors;
 
 /**
  * Buttons for your own Home Assistant in the bottom drawer. The address and the entities come with the build
- * (config.properties: home_assistant_url, _entities); the token never does: tools/home_assistant.py sends it over adb
- * into the app's private files (HomeAssistantInbox), since an APK on the TV can be read by any app on it. Nothing runs
- * until Home Settings › Home Assistant is on: then the drawer reads the entities' states while it is open (when it
- * opens, then every 30 s) and OK calls the entity's service. The only host is the server you name. Locks, alarms, covers
+ * (config.properties: home_assistant_url, _entities); the token never does, since any app on the TV can read an
+ * installed APK: `tools/send_key.py <IP> home_assistant_token` sends it over adb into the app's private files (Secrets).
+ * Nothing runs until Home Settings › Home Assistant is on: then the drawer reads the entities' states while it is open
+ * (when it opens, then every 30 s) and OK calls the entity's service. The only host is the server you name. Locks, alarms, covers
  * outside SAFE_COVERS (garage doors and gates, and those without a class), and every other domain outside DOMAINS, are
  * never offered: anyone in the room can press a TV remote.
  */
@@ -50,8 +48,6 @@ final class HomeAssistant {
      */
     static final List<String> SAFE_COVERS = Collections.unmodifiableList(
             Arrays.asList("awning", "blind", "curtain", "shade", "shutter"));
-    /** In the app's private files, written only by HomeAssistantInbox. */
-    static final String TOKEN_FILE = "home-assistant-token";
 
     private static final String SERVER = trimSlash(Config.HA_URL.trim());
 
@@ -315,27 +311,19 @@ final class HomeAssistant {
         }
     }
 
-    // MARK: - The token, sent from a computer (tools/home_assistant.py → HomeAssistantInbox)
+    // MARK: - The token, sent from a computer (tools/send_key.py → Secrets)
 
-    static File tokenFile(Context c) {
-        return new File(c.getApplicationContext().getFilesDir(), TOKEN_FILE);
-    }
-
+    /** A file read: not for the UI thread (onNow keeps what the last look saw). */
     static boolean hasToken(Context c) {
-        return tokenThere = tokenFile(c).length() > 0;
+        return tokenThere = !Secrets.get(c, Secrets.HOME_ASSISTANT_TOKEN).isEmpty();
     }
 
     /** Read at each round, so a token sent (or taken away) while the home screen runs counts at once. Never logged. */
     private static String token(Context c) throws IOException {
-        try {
-            String t = new String(Files.readAllBytes(tokenFile(c).toPath()), StandardCharsets.UTF_8).trim();
-            tokenThere = !t.isEmpty();
-            if (t.isEmpty()) throw new IOException("no token: send it with tools/home_assistant.py");
-            return t;
-        } catch (java.nio.file.NoSuchFileException e) {
-            tokenThere = false;
-            throw new IOException("no token: send it with tools/home_assistant.py");
-        }
+        String t = Secrets.get(c, Secrets.HOME_ASSISTANT_TOKEN);
+        tokenThere = !t.isEmpty();
+        if (t.isEmpty()) throw new IOException("no token: send it with tools/send_key.py <IP> home_assistant_token");
+        return t;
     }
 
     // MARK: - Names, kept so the tiles have them before the server answers

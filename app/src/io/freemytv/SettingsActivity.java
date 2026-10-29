@@ -832,8 +832,8 @@ public class SettingsActivity extends Activity {
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"},
                 CLOCKS = {"auto", "24", "12"};
         /** Home Settings: language, temperature, theme, clock, my photos, sounds, top of the screen, picks, Continue
-         *  Watching's apps, watch from the screensaver, Android apps, weather, city, forecast, now playing, Home Assistant (only on builds
-         *  with its address), quotes, one row per coin, then the TMDB key and updates (the last row). */
+         *  Watching's apps, watch from the screensaver, Android apps, weather, city, forecast, now playing, Home Assistant
+         *  (only on builds with its address), quotes, one row per coin, then the TMDB key and updates (the last row). */
         private static final int CLOCK_ROW = 3, PHOTOS_ROW = 4, TOP_ROW = 6, PICKS_ROW = 7, WATCH_ROW = 8,
                 SAVER_ROW = 9, ANDROID_APPS_ROW = 10, WEATHER_ROW = 11, CITY_ROW = 12, FORECAST_ROW = 13, PLAYING_ROW = 14,
                 HOME_ROW = Config.HOME_ASSISTANT ? 15 : -1, QUOTES_ROW = Config.HOME_ASSISTANT ? 16 : 15,

@@ -389,11 +389,9 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
 - Home Assistant buttons (`HomeAssistant`): `home_assistant_url` and `_entities` in `config.properties` go into the build
   (`Config.HOME_ASSISTANT`: only then does Home Settings have its *Home Assistant* row, off by default). The token never
   does (any app can read an installed APK, and a token reaches every service): it's theirs and secret, like `tmdb_key`,
-  and they send it themselves with `python3 tools/home_assistant.py <IP>` (it asks without showing it; don't ask for it in
-  the chat), over `adb exec-in content write` into `HomeAssistantInbox` (adb's shell only, `?size=` checked), which keeps
-  it in the app's private files; `--forget` deletes it. `exec-in` returns 0 whatever the TV printed, so the tool proves
-  it with `content query` on the inbox (one row: `offered`, `present`, never the token) and needs Android 9 (`content
-  write`). Until it's there the row shows Unavailable (`Capabilities.NEED_HOME_ASSISTANT`). On, the entities are a
+  and they send it themselves with `python3 tools/send_key.py <IP> home_assistant_token` (`Secrets`, as the Immich key;
+  it checks the token with the server and lists what each entity becomes first; don't ask for it in the chat). Until
+  it's there the row shows Unavailable (`Capabilities.NEED_HOME_ASSISTANT`). On, the entities are a
   third group of tiles in the bottom drawer (`HomeApps.HOME_ASSISTANT`), read when it opens and every 30 s while it's
   open, and OK calls their service (`/api/services`). Only `HomeAssistant.DOMAINS`, at most 8: locks and alarms are
   never offered, and covers only of `HomeAssistant.SAFE_COVERS` (awning, blind, curtain, shade, shutter; not garage

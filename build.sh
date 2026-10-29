@@ -97,18 +97,14 @@ lan_server immich_server
 lan_server home_assistant_url
 # Keys that would let another app on the TV into the user's own servers stay out of the APK: tools/send_key.py sends
 # them to the TV (Secrets).
-if [ -n "$(prop immich_api_key '')" ]; then
-  echo "config.properties: immich_api_key isn't built into the app (any app on the TV could read it there)." >&2
-  echo "Send it to the TV instead (python3 tools/send_key.py <TV IP> immich_api_key), then remove it here." >&2
-fi
-# Home Assistant: the address and the entities come with the build, the token never does (tools/home_assistant.py
-# sends it to the TV). With both, Home Settings gets its Home Assistant row; without, no row at all.
+for key in immich_api_key home_assistant_token; do
+  if [ -n "$(prop "$key" '')" ]; then
+    echo "config.properties: $key isn't built into the app (any app on the TV could read it there)." >&2
+    echo "Send it to the TV instead (python3 tools/send_key.py <TV IP> $key), then remove it here." >&2
+  fi
+done
+# Home Assistant: with an address and entities, Home Settings gets its Home Assistant row; without, no row at all.
 HA=false; [ -n "$(prop home_assistant_url '')" ] && [ -n "$(prop home_assistant_entities '')" ] && HA=true
-if [ -n "$(prop home_assistant_token '')" ]; then
-  echo "config.properties: home_assistant_token isn't built in any more (any app on the TV can read the APK): remove it" >&2
-  echo "from config.properties and send it with: python3 tools/home_assistant.py <TV IP>" >&2
-  exit 1
-fi
 
 rm -rf out && mkdir -p out/gen/io/freemytv out/classes
 cat > out/gen/io/freemytv/Config.java <<EOF

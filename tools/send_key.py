@@ -11,6 +11,10 @@ app's private files (`content write` to its Secrets provider, which only adb may
 arrived (never for the key itself). Android 9 and newer: adb's `content write` isn't there on Android 8. Keys:
   immich_api_key   Immich > Account Settings > API Keys (asset.read, asset.view, asset.download and album.read).
                    Checked against immich_server from config.properties first, when it's set.
+  home_assistant_token
+                   Home Assistant > your profile > Security > Long-lived access tokens (a user of its own that isn't an
+                   administrator is safest). Checked against home_assistant_url first, when it's set, with what each of
+                   home_assistant_entities becomes on the TV.
 """
 import getpass
 import json
@@ -23,7 +27,7 @@ import urllib.error
 import urllib.request
 
 URI = 'content://io.freemytv.secrets/'
-NAMES = ('immich_api_key',)
+NAMES = ('immich_api_key', 'home_assistant_token')
 SERIAL = []   # -s <ip>:5555 once connected, so a phone or another TV on adb doesn't get in the way
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -101,7 +105,60 @@ def check_immich(key):
         return f'Could not reach {server} from this computer ({e}). Send it anyway with --no-check.'
 
 
-CHECKS = {'immich_api_key': check_immich}
+# What the TV shows (HomeAssistant.DOMAINS, SAFE_COVERS, MAX): keep in step.
+HA_DOMAINS = ('light', 'switch', 'fan', 'input_boolean', 'cover', 'scene', 'script', 'automation', 'button',
+              'input_button')
+HA_SAFE_COVERS = ('awning', 'blind', 'curtain', 'shade', 'shutter')
+HA_MAX = 8
+
+
+def check_home_assistant(token):
+    """None if the server takes the token (and lists what each entity becomes), else why not; skipped without an address."""
+    server = prop('home_assistant_url').rstrip('/')
+    if not server:
+        return None
+    opener = urllib.request.build_opener(NoRedirect)
+
+    def get(path):
+        req = urllib.request.Request(server + path, headers={'Authorization': 'Bearer ' + token, 'User-Agent': 'FreeMyTV'})
+        with opener.open(req, timeout=8) as r:
+            return json.load(r)
+
+    try:
+        get('/api/')
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return 'Home Assistant refused this token.'
+        if 300 <= e.code < 400:
+            return f'Home Assistant answered with a redirect ({e.code}): give home_assistant_url the address it moves to.'
+        return f'Home Assistant answered HTTP {e.code}.'
+    except Exception as e:
+        return f'Could not reach {server} from this computer ({e}). Send it anyway with --no-check.'
+    shown = 0
+    for entity in [e.strip().lower() for e in prop('home_assistant_entities').split(',') if e.strip()]:
+        domain = entity.split('.', 1)[0]
+        if domain not in HA_DOMAINS:
+            print(f'  {entity}: left out (only {", ".join(HA_DOMAINS)})')
+            continue
+        if shown == HA_MAX:
+            print(f'  {entity}: left out (at most {HA_MAX})')
+            continue
+        try:
+            state = get('/api/states/' + entity)
+        except urllib.error.HTTPError as e:
+            print(f'  {entity}: ' + ('not found in Home Assistant' if e.code == 404 else f'HTTP {e.code}'))
+            continue
+        attributes = state.get('attributes') or {}
+        dc = str(attributes.get('device_class') or '').lower()
+        if domain == 'cover' and dc not in HA_SAFE_COVERS:
+            print(f'  {entity}: left out ({"a " + dc if dc else "a cover without a class"}; only {", ".join(HA_SAFE_COVERS)})')
+            continue
+        shown += 1
+        print(f'  {entity}: "{attributes.get("friendly_name") or entity}", {state.get("state")}')
+    return None
+
+
+CHECKS = {'immich_api_key': check_immich, 'home_assistant_token': check_home_assistant}
 
 
 def main():

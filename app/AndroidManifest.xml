@@ -211,18 +211,11 @@
             android:authorities="io.freemytv.photos"
             android:exported="true" />
 
-        <!-- tools/send_key.py writes keys that stay out of the APK here (the Immich key); only adb's shell may write
-             (Secrets checks). -->
+        <!-- tools/send_key.py writes keys that stay out of the APK here (the Immich key, Home Assistant's token); only
+             adb's shell may write (Secrets checks). -->
         <provider
             android:name=".Secrets"
             android:authorities="io.freemytv.secrets"
-            android:exported="true" />
-
-        <!-- tools/home_assistant.py sends Home Assistant's token here, so it's never in the APK; only adb's shell may
-             write (HomeAssistantInbox checks). -->
-        <provider
-            android:name=".HomeAssistantInbox"
-            android:authorities="io.freemytv.homeassistant"
             android:exported="true" />
 
         <!-- The sleep timer's minutes left over any app, while the timer runs. A process of its own: a foreground
