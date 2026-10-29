@@ -67,7 +67,8 @@ def main():
             print('out/shortcuts: deleted')
             if not dry:
                 shutil.rmtree(SHORTCUTS)
-        print('Done: the phone\'s Shortcuts now get {"error":"admin token"}; make note still works.')
+        print(('Would be done: the phone\'s Shortcuts would' if dry else 'Done: the phone\'s Shortcuts now')
+              + ' get {"error":"admin token"}; make note still works.')
         return
 
     phone = secrets.token_urlsafe(32)
