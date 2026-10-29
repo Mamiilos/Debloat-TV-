@@ -173,6 +173,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // At the top: tabs (0 to 2) and icon-only buttons (3 to 5); the three cards
     private int tab, topIndex, cardIndex;
+    private boolean toRecent;   // Home pressed with Recently opened on: its card takes the focus once it's there
     private int widgetIndex;    // with TalkBack on, the drawer's weather (0) or quotes (1) card can take the focus
     private List<Recs.Pick> cards = new ArrayList<>();
     // The three tabs, then the round buttons at the top right (up to HomeApps.MAX_TOP).
@@ -756,6 +757,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         cancelReorder(!animated);
         closeMenu(!animated);
+        toRecent = false;
         zone = Z_SHELF;
         shelfIndex = 0;
         cardIndex = 0;
@@ -774,6 +776,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (tab != 0) selectTab(0);
         retarget(!animated);
+        motionDirty = true;
+    }
+
+    /** The Home button: with Recently opened on, back to its card (Explore's first), else to the first app. */
+    void home() {
+        reset(true);
+        toRecent = Prefs.recent();
+        focusRecent();
+    }
+
+    /** After Home, the Recently opened card gets the focus, also when it comes in a moment later (a reload). */
+    private void focusRecent() {
+        if (!toRecent || tab != 0 || cards.isEmpty() || !cards.get(0).recent) return;
+        toRecent = false;
+        zone = Z_CARDS;
+        cardIndex = 0;
+        retarget(false);
         motionDirty = true;
     }
 
@@ -2900,6 +2919,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (menuOpen) return menuKey(e);
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
+        if (down) toRecent = false;     // a key pressed meanwhile: the focus stays where it went
         int code = e.getKeyCode();
         if (down && code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER
                 && code != KeyEvent.KEYCODE_NUMPAD_ENTER) {
@@ -3110,6 +3130,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         HomeApps.Item it;
         RectF r;
+        Recs.Pick pick = null;   // a title opened from the picks: Recs.opened keeps it (Recently opened)
         if (!sheetOpen && zone == WIDGETS) return;   // a widget is only read
         if (sheetOpen) {
             if (others.isEmpty()) return;
@@ -3120,6 +3141,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (p == null || p.pkg == null) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
             r = heroButton;
+            pick = p;
         } else if (zone == Z_STATUS) {
             if (statusItems.isEmpty()) return;
             it = statusItems.get(statusIndex);
@@ -3145,6 +3167,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (p == null || p.pkg == null) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
             r = cardRects[cardIndex];
+            pick = p;
         } else {
             if (shelf.isEmpty()) return;
             it = shelf.get(shelfIndex);
@@ -3169,6 +3192,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
                 Math.round(r.width()), Math.round(r.height()));
         if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", it.label));
+        else if (pick != null) recs.opened(pick);
+        else if (it.kind == HomeApps.APP) recs.openedApp(it.pkg, it.label);
     }
 
     // MARK: - Holding OK: All Apps puts the app on the shelf or takes it off; on the shelf, the app is lifted to move;
@@ -3772,6 +3797,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
             if (zone == Z_CARDS && list.isEmpty()) zone = Z_SHELF;
+            focusRecent();
             retarget(false);   // the wide card and the scroll follow the clamped index, whatever has the focus
         }
         // This tab's cards, then the first three of the others (what shows at first): switching tabs is quick, and
@@ -4421,6 +4447,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawText(weatherLine, x + sw + 16 * k, base, lWeather);
     }
 
+    private final RectF appCell = new RectF();
+
+    /** The shelf's or All Apps' item for this package (its TV art), or null. */
+    private HomeApps.Item appItem(String pkg) {
+        for (int i = 0; i < shelf.size(); i++) if (pkg.equals(shelf.get(i).pkg)) return shelf.get(i);
+        for (int i = 0; i < others.size(); i++) if (pkg.equals(others.get(i).pkg)) return others.get(i);
+        return null;
+    }
+
     /**
      * Recommendation card: the title's photo (already at the focused card size, so it stays sharp), rounded corners and
      * a soft shadow; when focused, it grows 5%, rises and lights up its border. Below it, the title (and on the large
@@ -4457,6 +4492,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             fill.setShader(null);
             fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
             c.drawRoundRect(cell, r, r, fill);
+            HomeApps.Item app = p != null && Recs.APP.equals(p.kind) ? appItem(p.pkg) : null;
+            if (app != null && app.tile != null) {   // a recently opened app: its TV art, in the middle of the card
+                float aw = Math.min(cell.width() * 0.8f, cell.height() * 0.6f * 16 / 9), ah = aw * 9 / 16;
+                appCell.set(cell.centerX() - aw / 2, cell.centerY() - ah / 2, cell.centerX() + aw / 2, cell.centerY() + ah / 2);
+                roundImage(c, app.tile, app.tileShader, appCell, 12 * k * s);
+            } else if (app != null && app.logo != null) {   // one of the shelf's own apps: its logo, sized to the card
+                Bitmap logo = tone(1f, 0f) > 0.5f && app.logoDark != null ? app.logoDark : app.logo;
+                float fit = Math.min(cell.width() * 0.4f / logo.getWidth(), cell.height() * 0.3f / logo.getHeight());
+                float lw = logo.getWidth() * fit, lh = logo.getHeight() * fit;
+                appCell.set(cell.centerX() - lw / 2, cell.centerY() - lh / 2, cell.centerX() + lw / 2, cell.centerY() + lh / 2);
+                c.drawBitmap(logo, null, appCell, bitmapPaint);
+            }
         }
         if (f > 0.01f) {
             if (lightSheens.length != cardRects.length) {
@@ -4498,13 +4545,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawText(TextUtils.ellipsize(p.meta, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
             lCardMeta.setAlpha(a);
         }
-        // A narrow card shows only its title: why it's there (Trakt's "Up next: S2 E5") goes under it, fading into the
-        // whole meta (which starts with it) as the card widens.
-        if (open < 0.98f && p.tag != null) {
+        // A narrow card shows only its title: why it's there ("Recently opened · Netflix", Trakt's "Up next: S2 E5") goes
+        // under it, fading into the whole meta (which starts with it) as the card widens.
+        String why = p.recent ? (p.label != null ? p.label : Ui.tr("Recently opened")) : p.tag;
+        if (open < 0.98f && why != null) {
             fitPaint.set(lCardMeta);
             int a = lCardMeta.getAlpha();
             lCardMeta.setAlpha(Math.round(a * (1 - open)));
-            c.drawText(TextUtils.ellipsize(p.tag, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
+            c.drawText(TextUtils.ellipsize(why, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
             lCardMeta.setAlpha(a);
         }
     }
