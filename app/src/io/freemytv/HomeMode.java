@@ -272,9 +272,13 @@ final class HomeMode {
     }
 
     static void ensureRemoteServiceNow(Context app) {
-        if (!RemoteKeys.supported() || !FREE.equals(state(app).optString("mode"))) return;
+        if (!RemoteKeys.supported() || !FREE.equals(state(app).optString("mode"))) {
+            AppLog.w("remote buttons: not in Free My TV mode");
+            return;
+        }
         try (Adb adb = Adb.connect(app, 10_000, null)) {
             remoteService(app, adb, RemoteKeys.serviceWanted());
+            if (KeyWatch.ON) KeyWatch.start(app, adb);
         } catch (IOException e) {
             AppLog.w("remote buttons service: " + e.getMessage());
         }
@@ -487,6 +491,7 @@ final class HomeMode {
             if (RemoteKeys.supported()) {
                 try {
                     remoteService(c, adb, RemoteKeys.serviceWanted());
+                    if (KeyWatch.ON) KeyWatch.start(c, adb);
                 } catch (IOException e) {
                     AppLog.w("remote buttons service: " + e.getMessage());
                 }
@@ -543,6 +548,7 @@ final class HomeMode {
             restoreScreensaver(adb, s);
             try {
                 remoteService(c, adb, false);
+                if (KeyWatch.ON) KeyWatch.stop(adb);
             } catch (IOException e) {
                 AppLog.w("remote buttons service: " + e.getMessage());
             }
