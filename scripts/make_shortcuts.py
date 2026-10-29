@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Two iPhone Shortcuts for the TV's note: "Note to TV" (asks, then sends) and "Clear TV note".
+
+    python3 scripts/make_shortcuts.py    # → out/shortcuts/*.shortcut, signed; AirDrop them to the phone
+
+They carry worker_url (tv.properties) and worker_phone_token (config.properties: one of the Worker's ADMIN_TOKEN list,
+the phone's own, so it can be revoked alone). The files hold that token: they stay in out/ (not in git); delete them
+once they're on the phone. Like make note, they work from home only (the Worker's ALLOWED_IPS).
+"""
+import os
+import plistlib
+import subprocess
+import sys
+import uuid
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tvconfig  # noqa: E402
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, 'out', 'shortcuts')
+
+
+def text(s):
+    return {'Value': {'string': s}, 'WFSerializationType': 'WFTextTokenString'}
+
+
+def output_of(action_uuid, name):
+    """A text field holding another action's output (Shortcuts' "magic variable")."""
+    return {'Value': {'string': '￼', 'attachmentsByRange': {'{0, 1}': {'OutputUUID': action_uuid, 'Type': 'ActionOutput', 'OutputName': name}}},
+            'WFSerializationType': 'WFTextTokenString'}
+
+
+def dictionary(items):
+    return {'Value': {'WFDictionaryFieldValueItems': [{'WFItemType': 0, 'WFKey': text(k), 'WFValue': v} for k, v in items]},
+            'WFSerializationType': 'WFDictionaryFieldValue'}
+
+
+def action(identifier, **params):
+    params.setdefault('UUID', str(uuid.uuid4()).upper())
+    return {'WFWorkflowActionIdentifier': identifier, 'WFWorkflowActionParameters': params}
+
+
+def request(url, method, token, json_items=None):
+    params = {'WFURL': url, 'WFHTTPMethod': method, 'ShowHeaders': True,
+              'WFHTTPHeaders': dictionary([('Authorization', text('Bearer ' + token)), ('Content-Type', text('application/json'))])}
+    if json_items:
+        params.update(WFHTTPBodyType='JSON', WFJSONValues=dictionary(json_items))
+    return action('is.workflow.actions.downloadurl', **params)
+
+
+def workflow(actions, glyph, color):
+    return {
+        'WFWorkflowActions': actions, 'WFWorkflowClientVersion': '2302.0.4', 'WFWorkflowMinimumClientVersion': 900,
+        'WFWorkflowMinimumClientVersionString': '900', 'WFWorkflowIcon': {'WFWorkflowIconGlyphNumber': glyph, 'WFWorkflowIconStartColor': color},
+        'WFWorkflowImportQuestions': [], 'WFWorkflowTypes': [], 'WFWorkflowInputContentItemClasses': ['WFStringContentItem'],
+    }
+
+
+def main():
+    values = tvconfig.settings()
+    url, token = values.get('worker_url', ''), values.get('worker_phone_token', '')
+    if not url or not token:
+        sys.exit('Needs worker_url in tv.properties and worker_phone_token in config.properties.')
+    notes = url.rstrip('/') + '/v1/notes'
+
+    ask = action('is.workflow.actions.ask', WFAskActionPrompt='Note for the TV (up to 140 characters)', WFInputType='Text')
+    send = request(notes, 'POST', token, [('text', output_of(ask['WFWorkflowActionParameters']['UUID'], 'Ask for Input'))])
+    shown = action('is.workflow.actions.showresult', Text=output_of(send['WFWorkflowActionParameters']['UUID'], 'Contents of URL'))
+    clear = request(notes, 'DELETE', token)
+    cleared = action('is.workflow.actions.showresult', Text=output_of(clear['WFWorkflowActionParameters']['UUID'], 'Contents of URL'))
+
+    os.makedirs(OUT, exist_ok=True)
+    for name, flow in [('Note to TV', workflow([ask, send, shown], 59511, 4282601983)),
+                       ('Clear TV note', workflow([clear, cleared], 59446, 4271458815))]:
+        raw = os.path.join(OUT, name + ' (unsigned).shortcut')
+        signed = os.path.join(OUT, name + '.shortcut')
+        fd = os.open(raw, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'wb') as f:
+            plistlib.dump(flow, f, fmt=plistlib.FMT_BINARY)
+        result = subprocess.run(['shortcuts', 'sign', '--mode', 'anyone', '--input', raw, '--output', signed],
+                                capture_output=True, text=True)
+        os.unlink(raw)
+        if result.returncode != 0 or not os.path.exists(signed):
+            sys.exit('Signing "%s" failed: %s' % (name, (result.stderr or result.stdout).strip()[:300]))
+        os.chmod(signed, 0o600)
+        print('Built', signed)
+    print('AirDrop both to the iPhone, add them, then delete out/shortcuts (they hold the phone\'s key).')
+
+
+if __name__ == '__main__':
+    main()

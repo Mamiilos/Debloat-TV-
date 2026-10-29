@@ -374,3 +374,13 @@ test('calendar: today from the secret feed; no feed is a 503; an HTML page (wron
   const bad = await authed('/v1/calendar');
   assert.equal(bad.status, 502);
 });
+
+test('notes: ADMIN_TOKEN can list one token per device; each works, and dropping one revokes only it', async () => {
+  env.ADMIN_TOKEN = 'mac-token, phone-token';
+  assert.equal((await req('/v1/notes', { method: 'POST', token: 'mac-token', body: { text: 'from the Mac' } })).status, 200);
+  assert.equal((await req('/v1/notes', { method: 'POST', token: 'phone-token', body: { text: 'from the phone' } })).status, 200);
+  assert.equal((await req('/v1/notes', { method: 'POST', token: 'phone', body: { text: 'x' } })).status, 401);
+  env.ADMIN_TOKEN = 'mac-token';
+  assert.equal((await req('/v1/notes', { method: 'POST', token: 'phone-token', body: { text: 'x' } })).status, 401);
+  assert.equal((await req('/v1/notes', { method: 'DELETE', token: 'mac-token' })).status, 200);
+});

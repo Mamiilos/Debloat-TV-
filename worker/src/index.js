@@ -14,7 +14,7 @@ import { eventsBetween, dayBounds } from './ics.js';
  *   GET /v1/calendar    today's events from CALENDAR_ICS (a calendar's secret iCal address; 10 min cache)
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
- * Secrets: TV_TOKEN, ADMIN_TOKEN (writes the note; never on the TV), UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only),
+ * Secrets: TV_TOKEN, ADMIN_TOKEN (writes the note, one per device, comma separated; never on the TV), UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only),
  * FOOTBALL_KEY (football-data.org), CALENDAR_ICS (the calendar's secret iCal address: anyone with it reads the calendar). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
  * separated; empty = any), GITHUB_RECENT (how many recently pushed repos, 6).
  * /v1/dashboard holds counts only, never repo names or titles: the TV's card is on a shared screen.
@@ -348,8 +348,10 @@ const NOTE_MAX = 140;
 
 async function notes(request, env) {
   if (request.method === 'GET') return json((await env.CACHE.get('note', 'json')) || { text: '', at: 0 });
+  // ADMIN_TOKEN may list several, comma separated: one per device (the Mac, a phone's Shortcut), so one can be revoked.
   const admin = request.headers.get('Authorization') || '';
-  if (!env.ADMIN_TOKEN || !sameSecret(admin, 'Bearer ' + env.ADMIN_TOKEN)) return json({ error: 'admin token' }, 401);
+  const tokens = (env.ADMIN_TOKEN || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (!tokens.some((t) => sameSecret(admin, 'Bearer ' + t))) return json({ error: 'admin token' }, 401);
   if (request.method === 'DELETE') {
     await env.CACHE.delete('note');
     return json({ text: '', at: 0 });
