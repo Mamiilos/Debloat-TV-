@@ -373,6 +373,17 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   opens TV Settings and All Apps opens our own sheet (`Prefs.ALL_APPS`, `HomeActivity.EXTRA_ALL_APPS`); the profile
   button has nothing to open without `launcherx`. Hisense keeps only error logs: `adb shell setprop log.tag.FreeMyTV I`
   before reading `adb logcat -s FreeMyTV`.
+  JVC G24 TV (Skyworth, Android 11) sends `BUTTON_16` / scan 383 for its shortcut menu; the firmware also maps IR scan
+  79 and `BUTTON_14` / scan 240 to that menu. `SkwGlobalKeyReceiver` crashes while querying Google TV's disabled
+  `LiveTvContentProvider`, before opening `com.smartdevice.dailyshortcut/.ui.MainActivity`. The key filter opens
+  that same activity directly; on a game HDMI input it can show the TV's game panel, including Source. The mapping
+  is limited to this model and firmware level (`SkyworthRemote`); other scan codes, Home, volume and gamepads stay
+  with Android. Its Quick Settings button sends `NOTIFICATION` (83, Bluetooth scan 240): SystemUI tries the disabled
+  Google TV notification panel. The filter opens our compact `QuickSettingsActivity` instead, with native Picture,
+  Sound, Inputs, Wi-Fi, Bluetooth pairing and TV Settings shortcuts. It shares `:home`, draws six compact rows
+  without images or a frame loop, and closes on Back, a second gear press or choosing a shortcut. Remote
+  Buttons lists Inputs and Settings button separately. Keeping the entire Google TV package enabled is
+  not a replacement: on this firmware its HOME priority 2 wins over ours even after `set-home-activity` succeeds.
   `adb shell input keyevent` doesn't test any of these: injected keys skip the accessibility key filter.
 - What's playing (`NowPlaying`) comes from the apps' media sessions, which Android hands only to an allowed notification
   listener. A listener could read every notification, so ours follows Home Settings' *Now Playing widget* or opt-in *Playback history* (both off by

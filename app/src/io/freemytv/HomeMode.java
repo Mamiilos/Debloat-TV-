@@ -146,6 +146,7 @@ final class HomeMode {
         "com.smartdevice.livetv", "com.smartdevice.livetv.overlay_SANLUX", "com.smartdevice.bleconnectservice",
         "com.smartdevice.duplebluetooth", "com.smartdevice.myapp", "com.smartdevice.setupwraith",
         "com.smartdevice.aftersale", "com.smartdevice.factory", "com.smartdevice.dailymanage",
+        "com.smartdevice.global.service", "com.smartdevice.dailyshortcut", "com.smartdevice.service", // remote, quick settings, system
         "com.smartdevice.dtv.icast", "com.smartdevice.leanbacklauncher.customizer", "com.mediatek.OledFuctionService",
         "com.mediatek.android.boot.appsplashscreen", "com.mediatek.android.leanbacklauncher.partnercustomizer",
         // KTC (NextStar; MediaTek): live TV and tuners, setup, settings, updates, casting, remote pairing, factory menus
@@ -258,7 +259,8 @@ final class HomeMode {
 
     /**
      * The remote's app buttons (RemoteKeys) need an accessibility service that only filters those keys. It is on only
-     * on TCL, Vestel, KTC, Sony, Xiaomi and Hisense TVs (and Formovie projectors) in Free My TV mode, and goes off with Original. Android turns it off when this app is updated, so the
+     * on TCL, Vestel, KTC, Sony, Xiaomi, Hisense and the supported JVC TVs (and Formovie projectors) in Free My TV mode,
+     * and goes off with Original. Android turns it off when this app is updated, so the
      * boot check and an update turn it back on. A change in Remote Buttons asks again: with every button on Nothing,
      * and on TCL's Android 11, it goes off (RemoteKeys.serviceWanted).
      */

@@ -119,6 +119,17 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".QuickSettingsActivity"
+            android:process=":home"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.freemytv.quick"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:screenOrientation="landscape"
+            android:theme="@style/FreeMyTV.QuickSettings" />
+
         <!-- The home screen. Its own process (:home): if it ever crashes, the safety net in the main process still
              works. It only becomes the TV's home screen in Free My TV mode (cmd package set-home-activity). -->
         <activity
