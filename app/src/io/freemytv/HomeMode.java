@@ -200,8 +200,17 @@ final class HomeMode {
         return FACTORY.matcher(pkg).matches();
     }
 
+    /** Amazon's streaming apps, not part of the system on any TV: Recent Apps may close them (mayTurnOff still refuses them). */
+    private static final Set<String> AMAZON_APPS = new HashSet<>(Arrays.asList(
+            "com.amazon.amazonvideo.livingroom", "com.amazon.music.tv"));
+
+    /** Recent Apps' ▲: what may be turned off, and Amazon's streaming apps, which only stop. */
+    static boolean mayStop(String pkg) {
+        return mayTurnOff(pkg) || AMAZON_APPS.contains(pkg) && !PROTECTED.contains(pkg);
+    }
+
     /** Checked before every disable: never the protected list, Amazon's packages, Android's own pieces or a factory menu. */
-    private static boolean mayTurnOff(String pkg) {
+    static boolean mayTurnOff(String pkg) {
         return !PROTECTED.contains(pkg) && !pkg.startsWith("com.amazon.")
                 && !CORE.matcher(pkg).matches() && !FACTORY.matcher(pkg).matches();
     }
@@ -212,7 +221,7 @@ final class HomeMode {
      * the receiver of the remote's Input key and Bluetooth pairing (fusion.android.tv.demo on several MediaTek boards).
      * null when the check didn't finish: then none of them goes off this time.
      */
-    private static Set<String> neededByTv(Adb adb, Set<String> pkgs) throws IOException {
+    static Set<String> neededByTv(Adb adb, Set<String> pkgs) throws IOException {
         Set<String> keep = new HashSet<>();
         if (pkgs.isEmpty()) return keep;
         // Only the package's own requested permissions: a shared user's would match by mistake. A line per package keeps

@@ -110,7 +110,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final long TOAST_MS = 6000, FADE_MS = 800;
     /** Blur radii of the shadow and shadowDeep paints (Shadows needs them to draw the same blur on older TVs). */
     private static final float SHADOW_BLUR = 26, DEEP_BLUR = 30;
-    private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7, MENU = 8;
+    private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7, MENU = 8, RECENT = 9;
     private static final int Z_STATUS = 0, Z_HERO = 1, Z_SHELF = 2, Z_DRAWER = 3;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
@@ -152,13 +152,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         @Override public boolean bounds(int id, Rect out) { return a11yBounds(id, out); }
         @Override public int focused() { return a11yFocused(); }
         @Override public void focus(int id) { a11yFocus(id); }
-        @Override public void click(int id) { activate(); }
+        @Override public void click(int id) { if (recentsOpen()) recents.openFocused(); else activate(); }
         @Override public boolean clickable(int id) { return (id - 1) / 1000 != WIDGETS; }
         @Override public boolean holdable(int id) { return a11yHolds(id); }
-        @Override public void hold(int id) { if (sheetOpen) a11yHold(); else if (canReorder()) startReorder(); else showMenu(); }
+        @Override public void hold(int id) { if (recentsOpen()) recents.closeFocused(); else if (sheetOpen) a11yHold(); else if (canReorder()) startReorder(); else showMenu(); }
     });
     private final RectF a11yRect = new RectF();
-    private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer, menuLayer;
+    private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer, menuLayer, recentLayer;
+    private RecentApps recents;
     private int zone = Z_SHELF;
 
     // Night look (like Apple's "Automatic" appearance): darker from sunset to sunrise, with a 2 s transition.
@@ -408,6 +409,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 case DRAWER: drawDrawer(c); break;
                 case SHEET: drawSheet(c); break;
                 case MENU: drawMenu(c); break;
+                case RECENT: if (recents != null) recents.draw(c, w, h); break;
                 default: drawToast(c); break;
             }
             scene.setOffset(0, 0);
@@ -628,16 +630,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sheetLayer = new Layer(a, SHEET);
         toastLayer = new Layer(a, TOAST);
         menuLayer = new Layer(a, MENU);
+        recentLayer = new Layer(a, RECENT);
         // Hardware layers on the GPU: only the one that changed is redrawn; moving, fading and scaling stay cheap.
         // Not on Android 8 to 11: on older GPUs (a Mi Box 3's Mali-450) redrawing and compositing a big layer on every
         // frame cost more than drawing straight to the screen (measured: focus on the picks 33 → 12 ms a frame, the
         // drawer 19 → 17 ms).
         for (View v : new View[] {heroLayer, status, platter, tiles, drawerLayer, sheetLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
-        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, menuLayer, toastLayer}) {
+        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, menuLayer, toastLayer, recentLayer}) {
             v.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);   // TalkBack reads the items (Spoken)
             addView(v);
         }
         setContentDescription("Free My TV");
+        recentLayer.setVisibility(INVISIBLE);
         drawerLayer.setVisibility(INVISIBLE);
         menuLayer.setVisibility(INVISIBLE);
         for (int i = 0; i < topFocus.length; i++) {
@@ -724,6 +728,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         running = false;
         handler.removeCallbacks(bgFollow);
         cancelReorder(true);
+        if (recents != null) recents.closeNow();
         handler.removeCallbacks(holdStart);
         okHeld = holdArmed = false;
         closeMenu(true);
@@ -756,6 +761,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         cancelReorder(!animated);
         closeMenu(!animated);
+        if (recents != null) recents.close();   // Home closes Recent Apps too (twice opens it: HomeActivity)
         zone = Z_SHELF;
         shelfIndex = 0;
         cardIndex = 0;
@@ -837,6 +843,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         measure(sheetLayer, width, height);
         measure(menuLayer, width, height);
         measure(toastLayer, width, Math.round(220 * kk));   // full width: a toast may sit right of a long title
+        measure(recentLayer, width, height);
         setMeasuredDimension(width, height);
     }
 
@@ -858,6 +865,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sheetLayer.setPivotX(width / 2f);
         sheetLayer.setPivotY(height / 2f);
         place(toastLayer, 0, 0);
+        recentLayer.layout(0, 0, width, height);
     }
 
     private static void place(View v, int x, int y) {
@@ -1001,6 +1009,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean menuMoving = menu.step(dt) | menuPick.step(dt);
         if (menuMoving || nightMoving && menuOpen) menuLayer.invalidate();
         else if (!menuOpen && menuLayer.getVisibility() == VISIBLE) menuLayer.setVisibility(INVISIBLE);
+        boolean recentMoving = recents != null && recents.step(dt);
+        if (recents != null) {
+            if (recents.visible() != (recentLayer.getVisibility() == VISIBLE)) recentLayer.setVisibility(recents.visible() ? VISIBLE : INVISIBLE);
+            if (recentMoving) recentLayer.invalidate();   // idle, the cards are drawn once
+            setUnderRecents(recents.covering());
+        }
 
         if (drawerMoving || sheetMoving || motionDirty) updateMotion();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
@@ -1029,10 +1043,28 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Busy: something is moving, or the sheet or the drawer is open.
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
                 || menuMoving || sheetMoving || toastFading || heroFading || bgFading || nightMoving || tintMoving || sheetOpen
-                || sheet.value > 0.001f || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
+                || sheet.value > 0.001f || recentMoving || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
         else Choreographer.getInstance().postFrameCallbackDelayed(this, 1000);
+    }
+
+    private final int[] underState = new int[9];
+    private boolean underHidden;
+
+    /** Recent Apps covers the screen: the layers below aren't drawn (on slower TVs they cost more than the cards). */
+    private void setUnderRecents(boolean covered) {
+        if (covered == underHidden) return;
+        underHidden = covered;
+        View[] under = {sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, menuLayer, toastLayer};
+        for (int i = 0; i < under.length; i++) {
+            if (covered) {
+                underState[i] = under[i].getVisibility();
+                under[i].setVisibility(INVISIBLE);
+            } else {
+                under[i].setVisibility(underState[i]);
+            }
+        }
     }
 
     private void wake() {
@@ -2899,6 +2931,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         wake();
         if (menuOpen) return menuKey(e);
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        if (recents != null && recents.visible()) {
+            int was = recents.focus();
+            boolean handled = recents.key(e);
+            recentLayer.invalidate();
+            if (recents.focus() != was) spoken.focusMoved();
+            if (!recents.visible() || recents.count() == 0) spoken.readAgain();
+            return handled;
+        }
+        if (down && e.getKeyCode() == KeyEvent.KEYCODE_APP_SWITCH && !Prefs.recents().equals("off")) {
+            openRecents();
+            return true;
+        }
         if (reordering) return reorderKey(e, down);
         int code = e.getKeyCode();
         if (down && code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER
@@ -3098,6 +3142,38 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         gridDirty = true;
     }
 
+    /** Home pressed twice (HomeActivity). */
+    void showRecents() {
+        openRecents();
+    }
+
+    /** Recent Apps over a blurred copy of the screen (without the copy, over a dark veil). */
+    private void openRecents() {
+        if (recents == null) {
+            recents = new RecentApps(activity, new RecentApps.Host() {
+                @Override public void open(HomeApps.Item item) {
+                    handler.post(() -> {
+                        if (!HomeApps.open(activity, item, HomeView.this, getWidth() / 2, getHeight() / 2, 1, 1)) {
+                            showToast(Ui.trf("Couldn't open {app}.", "app", item.label));
+                        }
+                    });
+                }
+                @Override public void repaint() {
+                    recentLayer.postInvalidate();
+                    handler.post(() -> { wake(); spoken.readAgain(); });   // the list arrived: TalkBack reads the cards
+                }
+            }, k);
+        }
+        ScreenBlur.capture(activity, handler, blurred -> {
+            recents.setBackdrop(blurred);
+            recents.open();
+            recentLayer.setVisibility(VISIBLE);
+            recentLayer.invalidate();
+            spoken.readAgain();
+            wake();
+        });
+    }
+
     private void activate() {
         wake();
         if (reordering) {   // TalkBack's click while moving an app: drop it
@@ -3151,6 +3227,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             r = tileRects[shelfIndex];
         }
         click.open();
+        if (it.kind == HomeApps.RECENTS) {
+            openRecents();
+            return;
+        }
         if (it.kind == HomeApps.ALL_APPS) {
             openSheet();
             return;
@@ -3417,7 +3497,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - TalkBack: every reachable item as a virtual node (Spoken). Id = group * 1000 + index + 1.
 
     /** The drawer's weather (0) and quotes (1) cards: read by TalkBack, never focused by the remote. */
-    private static final int GRID = 9, WIDGETS = 8, MENU_ITEMS = 10;
+    private static final int GRID = 9, WIDGETS = 8, MENU_ITEMS = 10, RECENT_CARDS = 11;
+
+    private boolean recentsOpen() {
+        return recents != null && recents.visible();
+    }
 
     private static int a11yId(int group, int index) {
         return group * 1000 + index + 1;
@@ -3428,6 +3512,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void a11yItems(List<Integer> out) {
+        if (recentsOpen()) {   // it covers the screen: only its cards are read (or, with none, its message)
+            for (int i = 0; i < Math.max(1, recents.count()); i++) out.add(a11yId(RECENT_CARDS, i));
+            return;
+        }
         if (menuOpen) {
             for (int i = 0; i < menuOptions.length; i++) out.add(a11yId(MENU_ITEMS, i));
             return;
@@ -3448,6 +3536,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private String a11yText(int id) {
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
         switch (group) {
+            case RECENT_CARDS:
+                if (!recentsOpen()) return "";
+                return recents.count() == 0 ? Ui.tr("Recent Apps") + ". " + recents.emptyText() : recents.spoken(i);
             case MENU_ITEMS:
                 if (!menuOpen || i >= menuOptions.length) return "";
                 return (i == 0 && menuItem != null ? menuItem.title + ". " : "") + menuOptions[i] + ", "
@@ -3485,6 +3576,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
         float dy;
         switch (group) {
+            case RECENT_CARDS:
+                if (!recentsOpen()) return false;
+                if (recents.count() == 0) recents.emptyBounds(a11yRect);
+                else if (!recents.bounds(i, a11yRect)) return false;
+                dy = 0;
+                break;
             case MENU_ITEMS:
                 if (!menuOpen || i >= menuOptions.length) return false;
                 menuRow(i, a11yRect);
@@ -3543,6 +3640,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** What holding OK does on an item, TalkBack offers as a long click. */
     private boolean a11yHolds(int id) {
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
+        if (group == RECENT_CARDS) return recentsOpen() && recents.stoppable(i);   // TalkBack's long click closes it, as ▲ does
         if (group == GRID) return canToggleShelf(i);
         if (group == Z_SHELF) {   // TalkBack's long click lifts the app, as holding OK does
             return !reordering && !menuOpen && !sheetOpen && shelf.size() > 1 && i < shelf.size()
@@ -3552,6 +3650,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private int a11yFocused() {
+        if (recentsOpen()) return a11yId(RECENT_CARDS, recents.count() == 0 ? 0 : recents.focus());
         if (menuOpen) return a11yId(MENU_ITEMS, menuIndex);
         if (sheetOpen) return others.isEmpty() ? -1 : a11yId(GRID, gridIndex);
         switch (zone) {
@@ -3600,6 +3699,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void a11yFocus(int id) {
         wake();
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
+        if (recentsOpen()) {
+            if (group == RECENT_CARDS) recents.setFocus(i);
+            recentLayer.invalidate();
+            return;
+        }
         if (menuOpen) {
             if (group == MENU_ITEMS && i < menuOptions.length && i != menuIndex) moveMenu(i - menuIndex);
             return;
