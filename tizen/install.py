@@ -196,6 +196,11 @@ def main():
         if 'different certificate' in out:
             hint = ('\nThe Free My TV on the TV was signed with another certificate, and the TV only updates it with the '
                     'same one. Remove it on the TV (' + ON_TV + '), then run this again.')
+        elif 'failed[118]' in out:
+            # A 2016 KU6640 (Tizen 2.4) answered 118 to every build after one failed install left the package behind,
+            # though nothing showed on the TV: vd_appuninstall cleared it (#349).
+            hint = ('\nAn earlier failed install may have left the package on the TV, out of sight. Remove it with '
+                    'python3 tizen/install.py %s --uninstall, then run this again.' % ip)
         sys.exit('The TV didn\'t finish installing. It said:\n' + out.strip() + hint)
     sdb.shell('0 was_execute ' + app_id, r'launched|spend time', 20)
     print('Installed and open on the TV.')
