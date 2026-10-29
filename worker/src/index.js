@@ -12,6 +12,8 @@ import { eventsBetween, dayBounds } from './ics.js';
  *   GET /v1/notes       the note shown on the TV; POST {"text"} or DELETE it with ADMIN_TOKEN (make note)
  *   GET /v1/football    FOOTBALL_TEAM's live match, next fixture and last result (football-data.org, 5 min cache)
  *   GET /v1/calendar    today's events from CALENDAR_ICS (a calendar's secret iCal address; 10 min cache)
+ *   GET /webos/apps.json, /webos/FreeMyTV.ipk   a private Homebrew Channel repository (make release uploads both to KV):
+ *                       no token (the Channel can't send one), so only from ALLOWED_IPS, and never without it
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
  * Every 15 minutes (cron) it also checks WATCH_SITES ("Name=https://url|..."), and the GitHub card counts them with the
@@ -390,6 +392,21 @@ async function sites(env) {
   }))).concat(fromWatch);
 }
 
+// MARK: Homebrew Channel repository (the build holds keys and photos: home only, never public)
+
+async function homebrew(path, env) {
+  if (!(env.ALLOWED_IPS || '').trim()) return json({ error: 'the repository needs ALLOWED_IPS' }, 403);
+  if (path === '/webos/apps.json') {
+    const repo = await env.CACHE.get('webos:apps.json');
+    return repo ? new Response(repo, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+      : json({ error: 'nothing published yet (make release)' }, 404);
+  }
+  const ipk = await env.CACHE.get('webos:ipk', 'arrayBuffer');
+  if (!ipk) return json({ error: 'nothing published yet (make release)' }, 404);
+  return new Response(ipk, { headers: { 'Content-Type': 'application/vnd.debian.binary-package', 'Content-Length': String(ipk.byteLength),
+    'Cache-Control': 'no-store' } });
+}
+
 // MARK: Watched sites (the cron): your other sites, checked every 15 minutes
 
 const WATCH_TIMEOUT = 15000;
@@ -448,6 +465,7 @@ export default {
     if (request.method !== 'GET' && !writesNote) return json({ error: 'GET only' }, 405);
     if (!allowedIp(request, env)) return json({ error: 'not from an allowed address' }, 403);
     if (path === '/health') return json(await health(env));
+    if (path === '/webos/apps.json' || path === '/webos/FreeMyTV.ipk') return homebrew(path, env);
 
     if (writesNote) return notes(request, env);
     const auth = request.headers.get('Authorization') || '';

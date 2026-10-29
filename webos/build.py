@@ -81,6 +81,9 @@ def ar(members):
 def build(preview, config, generic=False):
     with open(os.path.join(ROOT, 'webos', 'appinfo.json'), encoding='utf-8') as f:
         info = json.load(f)
+    # FREEMYTV_VERSION (make release in a fork) numbers each build, so the Homebrew Channel sees an update.
+    if os.environ.get('FREEMYTV_VERSION'):
+        info['version'] = os.environ['FREEMYTV_VERSION']
     app_id, version = info['id'], info['version']
     apps, icons = ([], {}) if generic else tv_apps()   # one TV's list never goes in a release
     if apps:
@@ -90,6 +93,8 @@ def build(preview, config, generic=False):
     for name in ('appinfo.json', 'icon.png', 'largeIcon.png'):
         with open(os.path.join(ROOT, 'webos', name), 'rb') as f:
             app[name] = f.read()
+    if os.environ.get('FREEMYTV_VERSION'):
+        app['appinfo.json'] = (json.dumps(info, indent=2) + '\n').encode('utf-8')
 
     base = 'usr/palm/applications/' + app_id
     entries = [('usr', None), ('usr/palm', None), ('usr/palm/applications', None), (base, None)]

@@ -2,7 +2,8 @@
 #   make build                  FreeMyTV-webos.ipk from tv.properties and config.properties
 #   make install [TV=<ip>]      build, then install and open it on the TV
 #   make uninstall [TV=<ip>]    remove it from the TV
-#   make release [TV=<ip>]      build, install, then tag the commit tv-YYYY-MM-DD-N with the settings' hash
+#   make release [TV=<ip>]      build, install, tag the commit tv-YYYY-MM-DD-N (settings' hash, version), and
+#                               publish to the Worker's private Homebrew Channel repository (home only)
 #   make config-hash            the hash of the settings a build would use (secrets left out)
 #   make note MSG="..."         the note on the TV's home screen (through the Worker; no reinstall)
 #   make note-clear             remove it
@@ -19,13 +20,13 @@ PYTHON ?= python3
 build:
 	BUILD_TAG='$(BUILD_TAG)' DEVMODE_UNTIL='$(DEVMODE_UNTIL)' $(PYTHON) scripts/tvconfig.py merge >/dev/null
 	$(PYTHON) scripts/tv_photos.py
-	$(PYTHON) webos/build.py --config out/effective.properties
+	FREEMYTV_VERSION='$(FREEMYTV_VERSION)' $(PYTHON) webos/build.py --config out/effective.properties
 
 # Always rebuild: install.py reuses any FreeMyTV-webos.ipk it finds, which after a checkout is the wrong one.
 # The build carries Developer Mode's end (scripts/devmode.py asks the TV and LG; left out when it can't tell).
 install:
 	@mkdir -p out; $(PYTHON) scripts/devmode.py $(TV) > out/devmode-until || true
-	$(MAKE) build BUILD_TAG='$(BUILD_TAG)' DEVMODE_UNTIL="$$(cat out/devmode-until 2>/dev/null)"
+	$(MAKE) build BUILD_TAG='$(BUILD_TAG)' FREEMYTV_VERSION='$(FREEMYTV_VERSION)' DEVMODE_UNTIL="$$(cat out/devmode-until 2>/dev/null)"
 	$(PYTHON) webos/install.py $(TV)
 
 uninstall:
@@ -55,7 +56,10 @@ release:
 		echo 'Uncommitted changes: commit or stash them first, so the tag matches what goes on the TV.'; exit 1; fi
 	@mkdir -p out; day=$$(date +%Y-%m-%d); \
 	n=$$(git tag -l "tv-$$day-*" | sed "s/^tv-$$day-//" | sort -n | tail -1); \
-	echo "tv-$$day-$$(( $${n:-0} + 1 ))" > out/release-tag
-	$(MAKE) install TV=$(TV) BUILD_TAG="$$(cat out/release-tag 2>/dev/null)"
+	echo "tv-$$day-$$(( $${n:-0} + 1 ))" > out/release-tag; \
+	base=$$($(PYTHON) -c "import json; print('.'.join(json.load(open('webos/appinfo.json'))['version'].split('.')[:2]))"); \
+	printf '%s.%s%02d\n' "$$base" "$$(date +%y%j)" "$$(( $${n:-0} + 1 ))" > out/release-version
+	$(MAKE) install TV=$(TV) BUILD_TAG="$$(cat out/release-tag 2>/dev/null)" FREEMYTV_VERSION="$$(cat out/release-version 2>/dev/null)"
 	@tag=$$(cat out/release-tag); hash=$$($(PYTHON) scripts/tvconfig.py hash) || exit 1; \
-	git tag -a "$$tag" -m "Installed on $(TV)" -m "config-sha256: $$hash" && rm out/release-tag && echo "Tagged $$tag (config $$hash)"
+	git tag -a "$$tag" -m "Installed on $(TV)" -m "config-sha256: $$hash" -m "version: $$(cat out/release-version)" && rm out/release-tag && echo "Tagged $$tag (config $$hash)"
+	@$(PYTHON) scripts/publish_repo.py "$$(cat out/release-version)" && rm -f out/release-version

@@ -424,3 +424,22 @@ test('watched sites not checked yet show as not yet, not as down', async () => {
   const d = await (await authed('/v1/dashboard/details')).json();
   assert.deepEqual(d.sites.map((s) => [s.name, s.ok]), [['Link', null]]);
 });
+
+// ---- the private Homebrew Channel repository
+
+test('homebrew repository: home only, no token, never without ALLOWED_IPS; 404 until published', async () => {
+  const get2 = (path, ip) => worker.fetch(new Request('https://w.example' + path, { headers: ip ? { 'CF-Connecting-IP': ip } : {} }), env);
+  assert.equal((await get2('/webos/apps.json')).status, 403);                     // ALLOWED_IPS unset: refused
+  env.ALLOWED_IPS = '203.0.113.7';
+  assert.equal((await get2('/webos/apps.json', '198.51.100.1')).status, 403);     // not home
+  assert.equal((await get2('/webos/apps.json', '203.0.113.7')).status, 404);      // home, nothing published
+  await env.CACHE.put('webos:apps.json', '{"packages":[]}');
+  env.CACHE.get = ((orig) => async (k, type) => (k === 'webos:ipk' && type === 'arrayBuffer' ? new Uint8Array([1, 2, 3]).buffer : orig(k, type)))(env.CACHE.get);
+  const repo = await get2('/webos/apps.json', '203.0.113.7');
+  assert.equal(repo.status, 200);
+  assert.equal(await repo.text(), '{"packages":[]}');
+  const ipk = await get2('/webos/FreeMyTV.ipk', '203.0.113.7');
+  assert.equal(ipk.status, 200);
+  assert.equal(ipk.headers.get('Content-Length'), '3');
+  assert.ok(JSON.stringify([...ipk.headers]).length < 2000);                       // the Channel's Node takes 8 KB of headers at most
+});

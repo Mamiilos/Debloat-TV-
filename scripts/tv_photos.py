@@ -21,7 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, 'out', 'photos')
 CACHE = os.path.join(ROOT, 'out', 'photos-cache')
 EXTENSIONS = ('.jpg', '.jpeg', '.heic', '.heif', '.png', '.tif', '.tiff', '.webp')
-MAX, MAX_MB = 80, 40
+MAX, MAX_MB = 80, 20   # 20 MB keeps the package inside the Worker repository's 25 MB
 
 
 def tool():
