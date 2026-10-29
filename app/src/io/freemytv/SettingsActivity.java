@@ -975,17 +975,23 @@ public class SettingsActivity extends Activity {
         }
 
         private String[] picksLabels() {
-            return Trakt.available() ? new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), "Trakt"}
-                    : new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from")};
+            return Trakt.available() ? new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), "Trakt", Ui.tr("Recently opened")}
+                    : new String[] {Ui.tr("Picks per tab"), Ui.tr("Picks from"), Ui.tr("Recently opened")};
         }
 
         private String[] picksValues() {
             String from = someServicesOff ? Ui.tr("services|Some") : Ui.tr("services|All");
-            return Trakt.available() ? new String[] {String.valueOf(Prefs.cards()), from, traktValue()}
-                    : new String[] {String.valueOf(Prefs.cards()), from};
+            String recent = onOff(Prefs.recent());
+            return Trakt.available() ? new String[] {String.valueOf(Prefs.cards()), from, traktValue(), recent}
+                    : new String[] {String.valueOf(Prefs.cards()), from, recent};
         }
 
-        /** The Trakt row on the Picks screen (the last one), only with a Trakt API app in config.properties; else -1. */
+        /** The Recently opened row on the Picks screen, the last: OK and ← → switch it. */
+        private static int recentRow() {
+            return Trakt.available() ? 3 : 2;
+        }
+
+        /** The Trakt row on the Picks screen (the third), only with a Trakt API app in config.properties; else -1. */
         private static int traktRow() {
             return Trakt.available() ? 2 : -1;
         }
@@ -1290,6 +1296,8 @@ public class SettingsActivity extends Activity {
                 if (focus == 0) {
                     int n = Prefs.cards() - 3, span = Recs.MAX_CARDS - 3 + 1;
                     Prefs.setCards(3 + (n + dir + span) % span);
+                } else if (focus == recentRow()) {
+                    Prefs.setRecent(!Prefs.recent());
                 }
                 return;
             }

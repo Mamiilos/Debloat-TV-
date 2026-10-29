@@ -54,6 +54,9 @@ final class Recs {
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         String tag;             // Trakt: "Up next: S2 E5", "On your watchlist"…, first in the meta; else null
         int mine;               // Trakt: PROGRESS, LIKED (watchlist, recommended) or 0 (TMDB's)
+        boolean recent;         // a copy of one opened from the picks (Prefs.recent), `label` first in the meta
+        String label;           // Recently opened: "Recently opened · Netflix" (the app it opens), under a narrow card's title
+                                // (kind APP: an app opened from the home screen; title = its name, no image)
         boolean detailed;
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
     }
@@ -209,6 +212,8 @@ final class Recs {
             keyStamp = cache.getLong("keyStamp", 0);
             traktStamp = cache.getLong("traktStamp", 0);
             traktActivity = cache.getString("traktActivity", "");
+            String opened = cache.getString("recent", null);
+            if (opened != null) recent.addAll(parse(new JSONArray(opened)));
         } catch (Exception ignored) {
         }
         // Right after the TV starts, the first fetch runs before the Wi-Fi is up and fails, which would hold the old
@@ -229,6 +234,110 @@ final class Recs {
         } catch (RuntimeException e) {
             AppLog.w("recommendations: no network callback: " + e.getMessage());
         }
+    }
+
+    // MARK: - Recently opened (Prefs.recent): what was opened from the picks, in any app, kept on the TV only
+
+    /** The most kept: more than a tab shows, so one whose app is gone leaves room. */
+    private static final int RECENT_MAX = 10;
+    /** Pick.kind of an app opened from the home screen (the shelf, All Apps): its card opens the app again. */
+    static final String APP = "app";
+
+    /**
+     * An app was opened from the home screen: it comes first again, as an app card (with Prefs.recent on). Android
+     * doesn't tell another home screen what was watched in it, but the app opens where it was left.
+     */
+    void openedApp(String pkg, String name) {
+        if (!Prefs.recent() || pkg == null || pkg.equals(context.getPackageName())) return;
+        Pick p = new Pick();
+        p.kind = APP;
+        p.id = pkg.hashCode();     // Recs.key: one card per app
+        p.title = name;
+        p.pkg = pkg;
+        p.meta = "";
+        p.detailed = true;
+        opened(p);
+    }
+    private final List<Pick> recent = new ArrayList<>();     // newest first; guarded by itself
+
+    /** A pick was opened from a card: it comes first again (with Prefs.recent on; off, nothing is kept). */
+    void opened(Pick p) {
+        if (!Prefs.recent() || p == null || p.pkg == null || p.photo != null) return;
+        String key = key(p);
+        Pick kept = copy(p);
+        // Its own meta, without "Recently opened" (put back as it shows) or Trakt's "Up next: S2 E5" (true only today).
+        String meta = p.meta == null ? "" : p.meta;
+        if (p.recent && p.label != null && meta.startsWith(p.label)) meta = meta.substring(p.label.length()).replaceFirst("^ · ", "");
+        if (p.tag != null && meta.startsWith(p.tag)) meta = meta.substring(p.tag.length()).replaceFirst("^ · ", "");
+        kept.meta = meta;
+        String saved;
+        synchronized (recent) {
+            for (int i = recent.size() - 1; i >= 0; i--) if (key(recent.get(i)).equals(key)) recent.remove(i);
+            recent.add(0, kept);
+            while (recent.size() > RECENT_MAX) recent.remove(recent.size() - 1);
+            try {
+                saved = json(recent).toString();
+            } catch (org.json.JSONException e) {
+                return;
+            }
+        }
+        cache.edit().putString("recent", saved).apply();
+        AppLog.w("recently opened: " + p.title + " (" + p.pkg + ")");
+        notifyListeners();
+    }
+
+    /** Recently opened of this kind (null: both) whose app is still on the TV, as they show: tagged, newest first. */
+    private List<Pick> recent(String kind, Map<String, Boolean> have) {
+        List<Pick> out = new ArrayList<>();
+        if (!Prefs.recent()) {
+            forget();
+            return out;
+        }
+        String tag = Ui.tr("Recently opened");
+        synchronized (recent) {
+            for (Pick p : recent) {
+                // Apps only on Explore (kind null), next to the titles; Movies and Shows keep to their kind.
+                if ((kind != null && !kind.equals(p.kind)) || !have.computeIfAbsent(p.pkg, this::installed)) continue;
+                Pick shown = copy(p);
+                shown.recent = true;
+                // "Recently opened · Netflix": the app it opens, first (not again at the end); an app's card has its
+                // name as its title.
+                String app = APP.equals(p.kind) ? null : serviceName(p), meta = p.meta == null ? "" : p.meta;
+                if (app != null && !app.isEmpty()) {
+                    if (meta.equals(app)) meta = "";
+                    else if (meta.endsWith(" · " + app)) meta = meta.substring(0, meta.length() - app.length() - 3);
+                }
+                shown.label = app == null || app.isEmpty() ? tag : tag + " · " + app;
+                shown.meta = meta.isEmpty() ? shown.label : shown.label + " · " + meta;
+                out.add(shown);
+            }
+        }
+        return out;
+    }
+
+    /** Switched off: what was kept goes, so switching it on again starts empty. */
+    private void forget() {
+        synchronized (recent) {
+            if (recent.isEmpty()) return;
+            recent.clear();
+        }
+        cache.edit().remove("recent").apply();
+    }
+
+    /** What a recently opened title keeps: enough to show its card and open it again. */
+    private static Pick copy(Pick p) {
+        Pick c = new Pick();
+        c.id = p.id;
+        c.kind = p.kind;
+        c.title = p.title;
+        c.backdrop = p.backdrop;
+        c.poster = p.poster;
+        c.link = p.link;
+        c.app = p.app;
+        c.pkg = p.pkg;
+        c.meta = p.meta;
+        c.detailed = true;
+        return c;
     }
 
     void addListener(Listener l) { if (!listeners.contains(l)) listeners.add(l); }
@@ -330,11 +439,13 @@ final class Recs {
             }
         }
         long hour = System.currentTimeMillis() / 3600_000L;
-        // Trakt first: what they're in the middle of (as Trakt orders it), up to 2 in 5 cards, then their watchlist and
+        // What was opened last from here is the first card (Prefs.recent; a title or an app), only that one. Then Trakt:
+        // what they're in the middle of (as Trakt orders it), up to 2 in 5 cards, then their watchlist and
         // Trakt's recommendations, up to 3 in 5 with those; then TMDB's. A new set each hour; Trakt's fill the rest when
         // TMDB's run short. Never two from the same franchise ("Law & Order" and "Law & Order: Special…").
         int cards = Prefs.cards();
         java.util.Set<String> seen = new java.util.HashSet<>();
+        take(out, seen, recent(kind, have), 0, 1);
         take(out, seen, progress, 0, Math.max(1, cards * 2 / 5));
         take(out, seen, liked, hour * cards, Math.max(2, cards * 3 / 5));
         take(out, seen, list, hour * cards, cards);
@@ -367,6 +478,7 @@ final class Recs {
 
     /** Name of the service the pick is on ("Netflix"), or empty. */
     static String serviceName(Pick p) {
+        if (p != null && APP.equals(p.kind)) return p.title;
         return p == null || p.app == null ? "" : SERVICE_NAME.get(p.app);
     }
 
@@ -413,7 +525,7 @@ final class Recs {
         boolean stale = newKey || p != period || now - listAt > LIST_EVERY || now < listAt || picks.isEmpty()
                 || !listLanguage.equals(Ui.language);
         boolean missing = false;
-        for (Pick pick : wanted()) missing |= !pick.detailed || !hasImage(pick) || needsLink(pick);
+        for (Pick pick : wanted()) missing |= !pick.detailed || (pick.backdrop != null && !hasImage(pick)) || needsLink(pick);
         boolean checkTrakt = !stale && !newTrakt && Trakt.signedIn(context) && (now - traktCheckedAt > TRAKT_EVERY || now < traktCheckedAt);
         if (!stale && !missing && !checkTrakt && !newTrakt) return;
         keyStamp = stamp;
@@ -447,7 +559,7 @@ final class Recs {
                     tried++;
                     try {
                         if (!pick.detailed) fetchDetails(pick);
-                        if (pick.pkg != null) download(pick);
+                        if (pick.pkg != null && pick.backdrop != null) download(pick);
                     } catch (Exception e) {
                         failures++;
                         last = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -551,7 +663,7 @@ final class Recs {
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
         for (String kind : new String[] {null, "movie", "tv"}) {
-            for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
+            for (Pick p : now(kind)) if (!APP.equals(p.kind) && seen.add(key(p))) out.add(p);   // apps have no title to fetch
         }
         return out;
     }
@@ -946,8 +1058,13 @@ final class Recs {
         return "wm2:" + p.kind + p.id + p.app;   // wm2: links found before the channel check are looked up again
     }
 
+    /** A movie or a show: Watchmode knows those, not an app. */
+    private static boolean isTitle(Pick p) {
+        return "movie".equals(p.kind) || "tv".equals(p.kind);
+    }
+
     private boolean needsLink(Pick p) {
-        return linksOn() && p.id > 0 && p.pkg != null && p.link == null
+        return linksOn() && p.id > 0 && isTitle(p) && p.pkg != null && p.link == null
                 && cache.getString(linkKey(p), null) == null && System.currentTimeMillis() >= linkRetryAt;
     }
 
@@ -962,7 +1079,7 @@ final class Recs {
 
     /** Sets p.link from what was looked up before, or looks it up (2 requests of the free plan's 2,500 a month). */
     private void findLink(Pick p) {
-        if (!linksOn() || p.id < 0 || p.pkg == null || p.link != null) return;
+        if (!linksOn() || p.id < 0 || !isTitle(p) || p.pkg == null || p.link != null) return;
         String saved = cache.getString(linkKey(p), null);
         if (saved != null) {
             p.link = saved.isEmpty() ? null : saved;
@@ -1249,24 +1366,32 @@ final class Recs {
 
     private void save() {
         try {
-            JSONArray a = new JSONArray();
-            for (Pick p : picks) {
-                a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
-                        .put("poster", p.poster == null ? "" : p.poster).put("link", p.link == null ? "" : p.link)
-                        .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("tag", p.tag == null ? "" : p.tag).put("mine", p.mine).put("detailed", p.detailed));
-            }
+            JSONArray a = json(picks);
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("traktActivity", traktActivity).putLong("traktStamp", traktStamp)
                     .putString("language", listLanguage)
                     .putLong("keyStamp", keyStamp).putInt("version", CACHE_VERSION);
-            // Watchmode links of titles no longer in the list go (the refused-key mark stays).
+            // Watchmode links of titles no longer in the list or Recently opened go (the refused-key mark stays).
             Set<String> keep = new HashSet<>();
             for (Pick p : picks) keep.add(linkKey(p));
+            synchronized (recent) {
+                for (Pick p : recent) keep.add(linkKey(p));
+            }
             for (String k : cache.getAll().keySet()) if ((k.startsWith("wm:") || k.startsWith("wm2:")) && !k.equals("wm:refused") && !keep.contains(k)) e.remove(k);
             e.apply();
         } catch (Exception ignored) {
         }
+    }
+
+    private static JSONArray json(List<Pick> list) throws org.json.JSONException {
+        JSONArray a = new JSONArray();
+        for (Pick p : list) {
+            a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
+                    .put("poster", p.poster == null ? "" : p.poster).put("link", p.link == null ? "" : p.link)
+                    .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
+                    .put("tag", p.tag == null ? "" : p.tag).put("mine", p.mine).put("detailed", p.detailed));
+        }
+        return a;
     }
 
     private static List<Pick> parse(JSONArray a) {
@@ -1278,7 +1403,7 @@ final class Recs {
             p.id = o.optInt("id");
             p.kind = o.optString("kind");
             p.title = o.optString("title");
-            p.backdrop = o.optString("backdrop");
+            p.backdrop = o.optString("backdrop").isEmpty() ? null : o.optString("backdrop");   // an app card has none
             p.poster = o.optString("poster");
             p.link = o.optString("link").isEmpty() ? null : o.optString("link");
             p.meta = o.optString("meta");
