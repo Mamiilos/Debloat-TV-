@@ -1,0 +1,222 @@
+package io.freemytv;
+
+import android.content.Context;
+import android.graphics.BitmapFactory;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.Comparator;
+
+/** Optional catalog artwork, never used as playback identity or evidence for Trakt. */
+final class WatchImages {
+    private static final long WEEK = 7L * 86400000;
+    private static final int MAX_BYTES = 2 << 20;
+
+    static String key(WatchNext.Item item) {
+        return "tmdb:"
+                + RecentMedia.hash(
+                        "artwork-v3|"
+                                + item.title
+                                + "|"
+                                + item.seasonNumber
+                                + "|"
+                                + item.episodeNumber
+                                + "|"
+                                + item.mediaType
+                                + "|"
+                                + item.releaseYear
+                                + "|"
+                                + item.duration);
+    }
+
+    /**
+     * Called only on WatchArt's serial image worker. Cached files contain images, not tokens or
+     * titles.
+     */
+    static byte[] load(Context c, WatchNext.Item item) throws Exception {
+        if (!RecentMedia.artEnabled(c) || Recs.key().isEmpty()) return null;
+        File dir = new File(c.getCacheDir(), "watch-images");
+        if (!dir.isDirectory() && !dir.mkdirs()) return null;
+        String hash = key(item).substring(5);
+        File image = new File(dir, hash + ".jpg"), miss = new File(dir, hash + ".miss");
+        long now = System.currentTimeMillis();
+        if (image.isFile() && image.length() <= MAX_BYTES && now - image.lastModified() < WEEK)
+            return Files.readAllBytes(image.toPath());
+        if (miss.isFile() && now - miss.lastModified() < 6 * 3600000L) return null;
+        String path = resolve(item);
+        if (path == null) {
+            Files.write(miss.toPath(), new byte[0]);
+            prune(dir);
+            return null;
+        }
+        if (!path.matches("/[A-Za-z0-9_-]{1,128}\\.(jpg|png|webp)")) return null;
+        HttpURLConnection conn =
+                (HttpURLConnection)
+                        new URL("https://image.tmdb.org/t/p/w780" + path).openConnection();
+        try {
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(10000);
+            conn.setInstanceFollowRedirects(false);
+            if (conn.getResponseCode() != 200) throw new java.io.IOException("artwork unavailable");
+            byte[] bytes;
+            try (InputStream in = conn.getInputStream();
+                    ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                for (int n; (n = in.read(buffer)) >= 0; ) {
+                    if (out.size() + n > MAX_BYTES)
+                        throw new java.io.IOException("artwork too large");
+                    out.write(buffer, 0, n);
+                }
+                bytes = out.toByteArray();
+            }
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+            File temporary = new File(dir, hash + ".new");
+            Files.write(temporary.toPath(), bytes);
+            Files.move(
+                    temporary.toPath(),
+                    image.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            if (miss.exists()) miss.delete();
+            prune(dir);
+            return bytes;
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    private static void prune(File dir) {
+        File[] files = dir.listFiles();
+        if (files == null || files.length <= 80) return;
+        Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+        for (int n = 0; n < files.length - 80; n++) files[n].delete();
+    }
+
+    private static String resolve(WatchNext.Item item) throws Exception {
+        WatchTitle query =
+                item.artworkTitle != null
+                        ? item.artworkTitle
+                        : new WatchTitle(
+                                item.title,
+                                item.mediaType,
+                                item.seasonNumber,
+                                item.episodeNumber,
+                                item.releaseYear);
+        JSONObject match = match(query, item.duration);
+        if (match == null) return null;
+        String still = match.optString("episode_still", "");
+        return still.startsWith("/") ? still : backdrop(match);
+    }
+
+    /** Catalog match for artwork or recommendations only; never Trakt evidence. */
+    static JSONObject match(WatchTitle query, long playbackDuration) throws Exception {
+        if (query.type.isEmpty() || query.title.isEmpty()) return null;
+        JSONArray found =
+                Recs.catalog(
+                                "/search/"
+                                        + query.type
+                                        + "?query="
+                                        + URLEncoder.encode(query.title, "UTF-8")
+                                        + "&include_adult=false")
+                        .optJSONArray("results");
+        if (found == null) return null;
+        java.util.List<JSONObject> matches = new java.util.ArrayList<>();
+        String wanted = WatchTitle.normalize(query.title);
+        // Exact titles first. An unrelated result's alias request must not prevent a known match.
+        for (int pass = 0; pass < 2 && matches.isEmpty(); pass++) {
+            for (int n = 0; n < Math.min(pass == 0 ? 10 : 3, found.length()); n++) {
+                JSONObject result = found.getJSONObject(n);
+                String type = result.optString("media_type", query.type);
+                if (!type.equals("movie") && !type.equals("tv")) continue;
+                if (type.equals("movie")
+                        && query.year > 1900
+                        && !result.optString("release_date").startsWith(String.valueOf(query.year)))
+                    continue;
+                String name = type.equals("tv") ? "name" : "title";
+                boolean match =
+                        wanted.equals(WatchTitle.normalize(result.optString(name)))
+                                || wanted.equals(
+                                        WatchTitle.normalize(result.optString("original_" + name)));
+                if (!match && pass == 1) {
+                    JSONObject aliases =
+                            Recs.catalog(
+                                    "/"
+                                            + type
+                                            + "/"
+                                            + result.getLong("id")
+                                            + "/alternative_titles");
+                    JSONArray titles =
+                            aliases.optJSONArray(type.equals("tv") ? "results" : "titles");
+                    for (int a = 0; titles != null && a < titles.length(); a++) {
+                        if (wanted.equals(
+                                WatchTitle.normalize(titles.getJSONObject(a).optString("title")))) {
+                            match = true;
+                            break;
+                        }
+                    }
+                }
+                if (match) {
+                    result.put("media_type", type);
+                    boolean duplicate = false;
+                    for (JSONObject old : matches)
+                        if (old.getLong("id") == result.getLong("id")
+                                && old.getString("media_type").equals(type)) duplicate = true;
+                    if (!duplicate) matches.add(result);
+                }
+            }
+        }
+        JSONObject episodeShow = null;
+        String episodeStill = null;
+        if (query.numberedEpisode()) {
+            for (JSONObject result : matches) {
+                if (!result.getString("media_type").equals("tv")) continue;
+                JSONObject ep;
+                try {
+                    ep =
+                            Recs.catalog(
+                                    "/tv/"
+                                            + result.getLong("id")
+                                            + "/season/"
+                                            + query.season
+                                            + "/episode/"
+                                            + query.episode);
+                } catch (java.io.IOException e) {
+                    if ("TMDB returned HTTP 404".equals(e.getMessage())) continue;
+                    throw e;
+                }
+                long duration = ep.optLong("runtime") * 60000L;
+                if (duration > 0
+                        && playbackDuration > 0
+                        && Math.abs(duration - playbackDuration) > 300000) continue;
+                if (episodeShow != null) return null;
+                episodeShow = result;
+                episodeStill = ep.optString("still_path", "");
+            }
+            if (episodeShow != null) {
+                episodeShow.put("episode_still", episodeStill);
+                return episodeShow;
+            }
+        }
+        // Provider season numbering can differ from TMDB. A unique series still has useful artwork,
+        // even when that episode is unavailable. This never establishes playback identity.
+        return matches.size() == 1 ? matches.get(0) : null;
+    }
+
+    private static String backdrop(JSONObject result) {
+        String image = result.optString("backdrop_path", "");
+        if (!image.startsWith("/")) image = result.optString("poster_path", "");
+        return image.startsWith("/") ? image : null;
+    }
+}

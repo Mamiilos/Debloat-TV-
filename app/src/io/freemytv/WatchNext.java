@@ -38,6 +38,9 @@ final class WatchNext {
         String app;                     // the app's name, for the card's details line
         long duration, position, engaged;
         String intent;
+        int seasonNumber = -1, episodeNumber = -1, mediaType = -1, releaseYear;
+        String catalogKey;
+        WatchTitle artworkTitle;
         final Uri pictureUri;
         final String pictureKey, bannerKey;
         private final String picture;
@@ -81,6 +84,8 @@ final class WatchNext {
         for (long channel : continueChannels(cr, c.getPackageName())) {
             all.addAll(read(cr, TvContract.buildPreviewProgramsUriForChannel(channel)));
         }
+        // Merge before deduplicating: a stale provider row must not discard a newer local observation.
+        all.addAll(RecentMedia.homeItems(c));
         Set<String> off = Prefs.watchOff(), hidden = Prefs.watchHidden();
         for (java.util.Iterator<Item> i = all.iterator(); i.hasNext(); ) {
             Item it = i.next();
@@ -91,11 +96,19 @@ final class WatchNext {
         Map<String, Integer> perApp = new HashMap<>();
         Set<String> seen = new HashSet<>();
         for (Item it : all) {
+            it.artworkTitle = new WatchTitle(it.title, it.mediaType, it.seasonNumber, it.episodeNumber, it.releaseYear);
+            boolean olderEpisode = false;
+            for (Item kept : out) if (it.artworkTitle.sameSeries(kept.artworkTitle)) {
+                olderEpisode = true;
+                break;
+            }
+            if (olderEpisode) continue; // One resume point per series, including across apps.
             String key = it.pkg + "|" + (it.intent != null ? it.intent : it.title);
             int n = perApp.containsKey(it.pkg) ? perApp.get(it.pkg) : 0;
             if (n >= PER_APP || !seen.add(key)) continue;
             perApp.put(it.pkg, n + 1);
             it.app = appName(c, it.pkg);
+            if (RecentMedia.artEnabled(c)) it.catalogKey = WatchImages.key(it);
             out.add(it);
             if (out.size() >= MAX) break;
         }
@@ -194,6 +207,8 @@ final class WatchNext {
                 TvContract.WatchNextPrograms.COLUMN_BROWSABLE,
                 TvContract.WatchNextPrograms.COLUMN_TITLE,
                 TvContract.WatchNextPrograms.COLUMN_PACKAGE_NAME,
+                TvContract.WatchNextPrograms.COLUMN_TYPE,
+                TvContract.WatchNextPrograms.COLUMN_RELEASE_DATE,
                 TvContract.WatchNextPrograms.COLUMN_SEASON_DISPLAY_NUMBER,
                 TvContract.WatchNextPrograms.COLUMN_EPISODE_DISPLAY_NUMBER,
                 TvContract.WatchNextPrograms.COLUMN_EPISODE_TITLE,
@@ -222,6 +237,12 @@ final class WatchNext {
                 it.title = title;
                 String season = text(cur, TvContract.WatchNextPrograms.COLUMN_SEASON_DISPLAY_NUMBER);
                 String episode = text(cur, TvContract.WatchNextPrograms.COLUMN_EPISODE_DISPLAY_NUMBER);
+                try { it.seasonNumber = Integer.parseInt(season); it.episodeNumber = Integer.parseInt(episode); }
+                catch (Exception ignored) { }
+                String mediaType = text(cur, TvContract.WatchNextPrograms.COLUMN_TYPE);
+                try { it.mediaType = Integer.parseInt(mediaType); } catch (Exception ignored) { }
+                String release = text(cur, TvContract.WatchNextPrograms.COLUMN_RELEASE_DATE);
+                if (release != null && release.matches("[0-9]{4}.*")) it.releaseYear = Integer.parseInt(release.substring(0, 4));
                 // Season and episode as each language writes them: "S2 E5", "T2 E5" (temporada), "St. 2 F. 5".
                 it.episode = season != null && episode != null
                         ? Ui.trf("S{season} E{episode}", "season", season, "episode", episode)

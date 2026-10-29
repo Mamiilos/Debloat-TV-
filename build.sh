@@ -59,6 +59,8 @@ ASSIST=false; [ "$(prop disable_assistant false)" = "true" ] && ASSIST=true
 CRYPTO=false; [ "$(prop show_crypto true)" = "true" ] && CRYPTO=true
 ANIMATION=false; [ "$(prop hide_animation false)" = "true" ] && ANIMATION=true
 SAVER=true; [ "$(prop screensaver true)" = "false" ] && SAVER=false
+WATCH_ART=false; [ "$(prop watch_images_tmdb false)" = "true" ] && WATCH_ART=true
+PERSONAL_RECS=false; [ "$(prop personalized_recommendations false)" = "true" ] && PERSONAL_RECS=true
 
 rm -rf out && mkdir -p out/gen/io/freemytv out/classes
 cat > out/gen/io/freemytv/Config.java <<EOF
@@ -69,6 +71,9 @@ final class Config {
     private Config() {}
 
     static final String TMDB_KEY = "$(prop tmdb_key '')";
+    static final String TRAKT_CLIENT_ID = "$(prop trakt_client_id '')";
+    static final boolean WATCH_IMAGES_TMDB = $WATCH_ART;
+    static final boolean PERSONAL_RECOMMENDATIONS = $PERSONAL_RECS;
     static final String WATCHMODE_KEY = "$(prop watchmode_key '')";
     static final String PLEX_URL = "$(prop plex_url '')";
     static final String PLEX_TOKEN = "$(prop plex_token '')";

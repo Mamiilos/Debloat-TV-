@@ -119,6 +119,17 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".QuickSettingsActivity"
+            android:process=":home"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.freemytv.quick"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:screenOrientation="landscape"
+            android:theme="@style/FreeMyTV.QuickSettings" />
+
         <!-- The home screen. Its own process (:home): if it ever crashes, the safety net in the main process still
              works. It only becomes the TV's home screen in Free My TV mode (cmd package set-home-activity). -->
         <activity
@@ -218,10 +229,13 @@
             android:process=":sleep"
             android:exported="false" />
 
-        <!-- Lets the home screen and the screensaver read what apps are playing (their media sessions); it unbinds itself
-             at once, so no process stays up for it. -->
+        <activity android:name=".RecentActivity" android:process=":history" android:exported="false"
+              android:screenOrientation="landscape" android:theme="@android:style/Theme.Material.NoActionBar" />
+
+        <!-- Media sessions only. History keeps its own process while opted in; the widget alone unbinds. -->
         <service
             android:name=".NowPlaying"
+            android:process=":history"
             android:exported="true"
             android:label="Free My TV"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">

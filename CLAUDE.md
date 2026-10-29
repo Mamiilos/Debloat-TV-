@@ -261,6 +261,18 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   and `_height`, `ro.config.low_ram`). There every pixel and every MB counts: `Backdrop` builds its images at the UI's
   size (and the picks use TMDB's w1280), and the shelf logos have a copy at the resting size and one at the focused
   size, so both draw pixel for pixel.
+  Recommendation decoding follows the visible tab (`Recs.visibleCards`). Visited tabs stay warm within a 40 MiB pixel
+  budget (16 MiB on Android low-RAM devices), with at most 12 entries; visible cards take priority over that budget.
+  Unvisited tabs keep compressed originals on disk. Pause/memory pressure retains only the current tab.
+  Generation checks discard work from an older tab or a paused home. The light
+  design builds its scratch bitmap at the wide card's width, not full-screen size. WatchArt uses focused card sizes,
+  GPU-backed final images and a 12-entry cache; memory pressure trims outside the visible window. Never recycle a
+  bitmap still referenced by a display list. ImageSizing bounds unusual provider dimensions before decoding; its
+  tests run with `tools/test-playback.sh`. Settled drawers/sheets use the idle tick rather than a continuous vsync loop.
+  On the legacy rendering path, card/app shadows follow focus or reorder lift; unfocused items skip the nine-slice
+  shadow draw. Keep the artwork, corner treatment and focus transitions intact.
+  Tab changes retain the old recommendation row until the first three incoming images are ready, swapping titles and
+  artwork together; a three-second fallback prevents unavailable artwork from holding navigation indefinitely.
 - TMDB's API is reached at `api.tmdb.org`, TMDB's own mirror of `api.themoviedb.org` on the images' domain
   (`image.tmdb.org`): some ISPs block the other name (Jio in India, #327).
 - `HomeMode` runs every switch as a background job (`ModeJob`) in the main process; the UI is in the `:home`
@@ -280,9 +292,15 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   On LG and Samsung it's typed in Home Settings (no QR: a web app can't serve a page): `Prefs.tmdbKey()` (localStorage)
   wins over `CONFIG.tmdbKey`, and `Data.keyChanged()` fetches the picks again.
 - Continue Watching gets `READ_TV_LISTINGS` with `pm grant` through the TV's own ADB only when picked in Home Settings;
-  *Original* revokes it with `pm revoke`. Watch Next pictures load only from the TV (`content://`, `android.resource://`),
-  never from the network. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
-  server (with a `plex_url`) and GitHub's releases (Updates): new sources (such as Stremio) must not add network calls
+  *Original* revokes it with `pm revoke`. Watch Next provider pictures load only from the TV (`content://`, `android.resource://`).
+  The separate, off-by-default TMDB images setting may search viewing titles and episode numbers on TMDB and fetch
+  images only from image.tmdb.org. `WatchImages` bounds and caches them; artwork matching never supplies Trakt evidence.
+  Optional personalized recommendations use `PersonalRecs` and `RecommendationMix`: opt-in history seeds plus trends,
+  fixed TMDB endpoints, bounded queries/cache, region/service filtering, no Trakt evidence. Keep general fallback and
+  immediate opt-out filtering; test mixing and brief-playback exclusion in `tools/test-playback.sh`.
+  Never fetch an arbitrary network URL published by another app. With playback history on, the native home screen
+  adds a spacious row below recommendations and scrolls by focus between recommendations, history and apps. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
+  server (with a `plex_url`), GitHub's releases (Updates), and Trakt only for explicitly connected playback history: new sources (such as Stremio) must not add network calls
   without the owner's OK.
 - On-screen text: `Ui.tr("English")`, translated from `app/assets/i18n/<lang>.json` (keyed by the English; one
   HashMap lookup, English when a language lacks it). Text built at runtime is a pattern: `Ui.trf("{n} min ago", "n", 12)`,
@@ -305,6 +323,10 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons, Sleep Timer) wins over those first values.
 - Settings rows that need something this TV lacks stay, dimmed as *Unavailable*: `SettingsActivity.need` names what a
   row needs, `Capabilities.missing` says why it's missing (once per screen), and OK on the row shows it in a toast.
+  Settings use a static gradient and unscaled focus cards, with no blurred focus masks. Schedule frames only while
+  focus springs or a switch spinner move; unchanged state polling must not redraw. The main list has eight spacious
+  rows; Home Settings and pickers scroll nine at a time. Comparison metrics live in the Home Screen choice.
+  Playback history/Trakt controls share the dark native theme and preserve button focus when toggles rebuild the page.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL,
   Vestel, KTC (NextStar), Sony, Xiaomi and Hisense TVs and Formovie projectors, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
   services. The system waits for the service on every key, so it lives alone in the `:keys` process: what it reads is
@@ -351,17 +373,34 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   opens TV Settings and All Apps opens our own sheet (`Prefs.ALL_APPS`, `HomeActivity.EXTRA_ALL_APPS`); the profile
   button has nothing to open without `launcherx`. Hisense keeps only error logs: `adb shell setprop log.tag.FreeMyTV I`
   before reading `adb logcat -s FreeMyTV`.
+  JVC G24 TV (Skyworth, Android 11) sends `BUTTON_16` / scan 383 for its shortcut menu; the firmware also maps IR scan
+  79 and `BUTTON_14` / scan 240 to that menu. `SkwGlobalKeyReceiver` crashes while querying Google TV's disabled
+  `LiveTvContentProvider`, before opening `com.smartdevice.dailyshortcut/.ui.MainActivity`. The key filter opens
+  that same activity directly; on a game HDMI input it can show the TV's game panel, including Source. The mapping
+  is limited to this model and firmware level (`SkyworthRemote`); other scan codes, Home, volume and gamepads stay
+  with Android. Its Quick Settings button sends `NOTIFICATION` (83, Bluetooth scan 240): SystemUI tries the disabled
+  Google TV notification panel. The filter opens our compact `QuickSettingsActivity` instead, with native Picture,
+  Sound, Inputs, Wi-Fi, Bluetooth pairing and TV Settings shortcuts. It shares `:home`, draws six compact rows
+  without images or a frame loop, and closes on Back, a second gear press or choosing a shortcut. Remote
+  Buttons lists Inputs and Settings button separately. Keeping the entire Google TV package enabled is
+  not a replacement: on this firmware its HOME priority 2 wins over ours even after `set-home-activity` succeeds.
   `adb shell input keyevent` doesn't test any of these: injected keys skip the accessibility key filter.
 - What's playing (`NowPlaying`) comes from the apps' media sessions, which Android hands only to an allowed notification
-  listener. A listener could read every notification, so ours follows Home Settings' *Now Playing widget* (off by
+  listener. A listener could read every notification, so ours follows Home Settings' *Now Playing widget* or opt-in *Playback history* (both off by
   default): turning it on allows it through ADB (`HomeMode.nowPlayingAccess`, `cmd notification allow_listener`; the
   `enabled_notification_listeners` setting grants nothing since Android 8) and proves it took (`Capabilities.LISTENER`,
-  else the row shows Unavailable); turning it off, *Original* and the watchdog's revert take it back. The switch to
-  Free My TV mode allows nothing. `HomeMode` sets it, under the `RUN` lock, to what the widget says at that moment (so
+  else the row shows Unavailable); turning both features off, *Original* and the watchdog's revert take it back. The switch to
+  Free My TV mode allows nothing. `HomeMode` sets it, under the `RUN` lock, to what the widget and history settings say at that moment (so
   quick toggles and a revert can't cross), `verifyNow` does the same after a boot or an update, and a screen that finds
   it on but not allowed asks once.
-  It unbinds itself as soon as it connects (the permission is all it's for), and the home screen and the screensaver
-  watch the sessions only while they show. The line is cut to fit when the title changes, never while drawing; the
+  With Playback history off, it unbinds itself as soon as it connects, and the home screen and the screensaver
+  watch sessions only while they show. With history on, `MediaHistoryMonitor` stays bound in `:history`, observes
+  advancing positions and joins fresh Watch Next updates after playback. `RecentActivity`, `RecentMedia` and
+  `TraktSync` share this process; private history and token files have one serial writer each. Trakt is optional,
+  uses device OAuth (Client ID only, never a password or Client Secret), and writes delayed history only after
+  measured coverage and unambiguous identity match. Keep the sent journal, account scoping and pre-write history
+  lookup: the API does not deduplicate writes for us. See `docs/playback-history.md` and run
+  `tools/test-playback.sh` after changes to evidence or OAuth polling. The line is cut to fit when the title changes, never while drawing; the
   home screen's bars bounce again only for a new title (`Watch.title`), and TalkBack announces it then.
 - HY300 projectors (Hotack, Allwinner H713, Android 11 tested; the build claims to be an `askey`/`adt3`): the stock
   home screen and screensaver are `com.htc.htclauncherhighenglishd08`, which also carries an ad SDK (`com.zeasn.ad`).

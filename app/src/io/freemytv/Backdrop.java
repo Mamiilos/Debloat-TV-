@@ -18,8 +18,8 @@ import android.graphics.Shader;
  *  - the Liquid Glass version (480×270, lightly blurred): the photo shows through the shelf and the cards;
  *  - with forLight: the card (the photo without scrims, cropped wide, already at the focused card size) and
  *    the frosted and glass versions blended with white (by day) and with near-black (at night).
- * Only what is needed gets built (with forLight, no full photo: the cards are lightweight, so all 9 for the three tabs
- * fit in memory, ready); the other fields stay null.
+ * Only what is needed gets built (with forLight, no full photo: Recs bounds the visited tabs' decoded images);
+ * the other fields stay null.
  * The final image lives only in GPU memory (HARDWARE): drawing it costs one texture, and the process doesn't hold 8 MB.
  */
 final class Backdrop {
@@ -47,6 +47,18 @@ final class Backdrop {
     final Bitmap lightImage;            // by day: the background (the lightened frosted version, scaled up on screen)
     final int[] nightFrost, nightGlass; // at night: frosted (the bottom drawer's frosted glass) and glass, darkened
     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
+
+    /** Retained pixel storage, including GPU-backed cards; renderer overhead is separate. */
+    long pixelBytes() {
+        long bytes = bitmapBytes(image) + bitmapBytes(wide) + bitmapBytes(lightImage) + bitmapBytes(nightImage);
+        for (int[] pixels : new int[][] {frost, glass, light, lightGlass, nightFrost, nightGlass})
+            if (pixels != null) bytes += (long) pixels.length * 4;
+        return bytes;
+    }
+
+    static long bitmapBytes(Bitmap bitmap) {
+        return bitmap == null ? 0 : bitmap.getAllocationByteCount();
+    }
 
     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, int[] light, int[] lightGlass,
                      int[] night, int[] nightGlass) {
@@ -82,7 +94,10 @@ final class Backdrop {
         // Cropped to 16:9 at the source's resolution first, then filtered down (no step over 2×).
         Bitmap crop = center(src, (float) W / H);
         if (crop != src) src.recycle();
-        Bitmap out = Ui.downscale(crop, W, H);
+        // The light design never displays the full-screen original. Build at the wide card's width instead of
+        // allocating a 1920×1080 scratch bitmap for every card; the frosted/glass copies need even fewer pixels.
+        int width = forLight ? Math.min(W, Math.max(WIDE_W, GW)) : W;
+        Bitmap out = Ui.downscale(crop, width, Math.round(width * (float) H / W));
         if (out != crop) crop.recycle();
         if (!out.isMutable()) {
             Bitmap copy = out.copy(Bitmap.Config.ARGB_8888, true);
