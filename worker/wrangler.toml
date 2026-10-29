@@ -13,6 +13,8 @@ enabled = true
 [vars]
 STATIONS = "0451:Mersey,0461:Dee"
 TRAINS_CRS = "BKQ"
+# football-data.org team id: Manchester United.
+FOOTBALL_TEAM = "66"
 # Sites on the GitHub card: "Name:BINDING", each binding a monitoring Worker's STATE KV (read only here).
 SITES = "Sweet Dezire:SITE_SWEETDEZIRE,RAPIDER:SITE_RAPIDER"
 

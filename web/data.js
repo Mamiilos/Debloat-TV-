@@ -373,6 +373,23 @@ var Data = (function () {
     });
   }
 
+  var match = null, matchAt = 0, fetchingMatch = false;
+
+  function refreshFootball() {
+    var now = Date.now();
+    if (!WORKER.url || !WORKER.football || fetchingMatch || (now - matchAt < 5 * 60000 && now >= matchAt)) return;
+    fetchingMatch = true;
+    workerGet('/v1/football', function (err, body) {
+      fetchingMatch = false;
+      if (!err && !body) err = new Error('no fixtures');
+      noteFetch('football', err || (body.stale && body.error ? new Error(body.error) : null));
+      if (err) return;
+      match = body;
+      matchAt = Date.now();
+      changed();
+    });
+  }
+
   function refreshNote() {
     var now = Date.now();
     if (!WORKER.url || !WORKER.notes || fetchingNote || (now - noteAt < 120000 && now >= noteAt)) return;
@@ -723,7 +740,9 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); refreshDashboard(); refreshTrains(); refreshNote(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); refreshDashboard(); refreshTrains(); refreshNote(); refreshFootball(); },
+    /** The team's {team, live, next, last} matches, or null. */
+    get football() { return match; },
     /** The next departures ({station, services: [{std, etd, destination, cancelled}], messages}), or null. */
     get trains() { return trains; },
     /** The note from make note, or ''. */
@@ -753,6 +772,7 @@ var Data = (function () {
       if (WORKER.url && WORKER.tides) out.push({name: tr('Tides'), at: tidesAt, failed: tidesFailure()});
       if (WORKER.url && WORKER.dashboard) out.push({name: 'GitHub', at: dashAt, failed: failures.dashboard});
       if (WORKER.url && WORKER.trains) out.push({name: trains ? trains.station : 'Trains', at: trainsAt, failed: failures.trains});
+      if (WORKER.url && WORKER.football) out.push({name: match && match.team || 'Football', at: matchAt, failed: failures.football});
       for (var i = 0; i < out.length; i++) if (out[i].failed && out[i].failed.at < out[i].at) out[i].failed = null;
       return out;
     },

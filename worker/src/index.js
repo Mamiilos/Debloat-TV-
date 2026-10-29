@@ -8,9 +8,11 @@
  *   GET /v1/dashboard/details   the same with repo names and PR titles, for the sheet the TV opens on purpose
  *   GET /v1/trains      the next departures from TRAINS_CRS (Huxley2's National Rail feed; Cloudflare caches 60 s)
  *   GET /v1/notes       the note shown on the TV; POST {"text"} or DELETE it with ADMIN_TOKEN (make note)
+ *   GET /v1/football    FOOTBALL_TEAM's live match, next fixture and last result (football-data.org, 5 min cache)
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
- * Secrets: TV_TOKEN, ADMIN_TOKEN (writes the note; never on the TV), UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
+ * Secrets: TV_TOKEN, ADMIN_TOKEN (writes the note; never on the TV), UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only),
+ * FOOTBALL_KEY (football-data.org). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
  * separated; empty = any), GITHUB_RECENT (how many recently pushed repos, 6).
  * /v1/dashboard holds counts only, never repo names or titles: the TV's card is on a shared screen.
  */
@@ -290,6 +292,39 @@ async function trains(env) {
   };
 }
 
+// MARK: Football (football-data.org: one request, 7 days back to 14 ahead)
+
+const FOOTBALL_FRESH = 5 * 60000;
+const ymd = (t) => new Date(t).toISOString().slice(0, 10);
+
+/** {team, live, next, last}: each {home, away, opponent, atHome, utcDate, competition, status, score: {home, away}}. */
+export function pickMatches(matches, teamId, now = Date.now()) {
+  const shape = (m) => {
+    const atHome = m.homeTeam.id === teamId;
+    return {
+      home: m.homeTeam.shortName || m.homeTeam.name, away: m.awayTeam.shortName || m.awayTeam.name,
+      opponent: atHome ? m.awayTeam.shortName || m.awayTeam.name : m.homeTeam.shortName || m.homeTeam.name,
+      atHome, utcDate: m.utcDate, competition: (m.competition || {}).name || '', status: m.status,
+      score: { home: m.score && m.score.fullTime ? m.score.fullTime.home : null, away: m.score && m.score.fullTime ? m.score.fullTime.away : null },
+    };
+  };
+  const sorted = [...matches].sort((a, b) => Date.parse(a.utcDate) - Date.parse(b.utcDate));
+  const live = sorted.find((m) => m.status === 'IN_PLAY' || m.status === 'PAUSED');
+  const next = sorted.find((m) => (m.status === 'SCHEDULED' || m.status === 'TIMED') && Date.parse(m.utcDate) > now);
+  const last = [...sorted].reverse().find((m) => m.status === 'FINISHED');
+  const team = sorted[0] ? (sorted[0].homeTeam.id === teamId ? sorted[0].homeTeam : sorted[0].awayTeam) : null;
+  return { team: team ? team.shortName || team.name : '', live: live ? shape(live) : null, next: next ? shape(next) : null, last: last ? shape(last) : null };
+}
+
+async function football(env) {
+  const team = parseInt(env.FOOTBALL_TEAM || '66', 10);
+  const now = Date.now();
+  const url = `https://api.football-data.org/v4/teams/${team}/matches?dateFrom=${ymd(now - 7 * DAY)}&dateTo=${ymd(now + 14 * DAY)}`;
+  const r = await fetch(url, { headers: { 'X-Auth-Token': env.FOOTBALL_KEY } });
+  if (!r.ok) throw new Error(`football-data: HTTP ${r.status}`);
+  return pickMatches((await r.json()).matches || [], team, now);
+}
+
 // MARK: Notes (make note MSG="..." writes; the TV reads)
 
 const NOTE_MAX = 140;
@@ -348,6 +383,11 @@ export default {
     if (!env.TV_TOKEN || !sameSecret(auth, 'Bearer ' + env.TV_TOKEN)) return json({ error: 'token' }, 401);
     try {
       if (path === '/v1/notes') return notes(request, env);
+      if (path === '/v1/football') {
+        if (!env.FOOTBALL_KEY) return json({ error: 'no FOOTBALL_KEY' }, 503);
+        const c = await cached(env, 'football', FOOTBALL_FRESH, () => football(env));
+        return json({ ...c.data, fetchedAt: c.fetchedAt, stale: c.stale, error: c.error });
+      }
       if (path === '/v1/trains') {
         const t = await live(env, 'trains', () => trains(env)).catch((e) => ({ error: String(e.message || e) }));
         return json(t, t.error ? 502 : 200);

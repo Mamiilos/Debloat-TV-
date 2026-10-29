@@ -420,10 +420,27 @@
     return trf('Developer Mode ends {date}: press EXTEND in its app', {date: formatDate('format|EEEE, MMMM d', until)});
   }
 
-  /** The tab row's quiet line without crypto: Developer Mode's warning, the note, then the next two trains. */
+  /** [text, kind, urgent] for the team: live, on match day, just finished (12 h), or the next fixture. */
+  function footballLine() {
+    var f = Data.football, now = Date.now();
+    if (!f) return null;
+    var score = function (m) { return m.home + ' ' + m.score.home + '–' + m.score.away + ' ' + m.away; };
+    if (f.live && f.live.score.home !== null) return [score(f.live) + ' · ' + tr('Live'), 'late', true];
+    if (f.last && now - Date.parse(f.last.utcDate) < 14 * 3600000 && f.last.score.home !== null) {
+      return [score(f.last) + ' · ' + tr('Full time'), '', true];
+    }
+    if (!f.next) return null;
+    var at = Date.parse(f.next.utcDate), today = new Date(at).toDateString() === new Date(now).toDateString();
+    return [f.next.home + ' v ' + f.next.away + ' · ' + (today ? tr('Today') : Data.weekday(at)) + ' ' + Data.time(at), '', today];
+  }
+
+  /** The tab row's quiet line without crypto: Developer Mode's warning, the match when it's today, the note, the next
+   *  two trains, then the next fixture. */
   function renderExtras(q) {
     var warn = devModeWarning();
     if (warn) el('span', 'q warn', q, warn);
+    var foot = footballLine();
+    if (foot && foot[2]) el('span', 'q match ' + foot[1], q, foot[0]);
     if (Data.note) el('span', 'q note', q, Data.note);
     var t = Data.trains;
     if (t && t.services && t.services.length) {
@@ -436,6 +453,7 @@
         else if (s.etd && s.etd !== 'On time') el('span', 'late', line, s.etd);
       }
     }
+    if (foot && !foot[2]) el('span', 'q match', q, foot[0]);
   }
 
   function renderQuotes() {

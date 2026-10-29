@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../src/index.js';
+import worker, { pickMatches } from '../src/index.js';
 
 function kv() {
   const m = new Map();
@@ -306,4 +306,48 @@ test('KV free tier: with Cloudflare\'s cache, the dashboard writes its KV copy a
   } finally {
     delete globalThis.caches;
   }
+});
+
+// ---- football
+
+const m = (date, status, home, away, score = [null, null]) => ({
+  utcDate: date, status, competition: { name: 'Premier League' },
+  homeTeam: { id: home[0], shortName: home[1] }, awayTeam: { id: away[0], shortName: away[1] },
+  score: { fullTime: { home: score[0], away: score[1] } },
+});
+const MUN = [66, 'Man United'], CHE = [61, 'Chelsea'], BOU = [1044, 'Bournemouth'], ROM = [100, 'Roma'];
+
+test('football: the last result, the next fixture, home or away, as the TV needs them', () => {
+  const now = Date.parse('2026-10-29T02:00:00Z');
+  const p = pickMatches([
+    m('2026-11-03T20:00:00Z', 'TIMED', MUN, ROM),
+    m('2026-10-25T14:00:00Z', 'FINISHED', MUN, BOU, [0, 3]),
+    m('2026-10-31T12:30:00Z', 'TIMED', CHE, MUN),
+  ], 66, now);
+  assert.equal(p.team, 'Man United');
+  assert.equal(p.live, null);
+  assert.deepEqual([p.next.home, p.next.away, p.next.opponent, p.next.atHome], ['Chelsea', 'Man United', 'Chelsea', false]);
+  assert.deepEqual([p.last.opponent, p.last.atHome, p.last.score], ['Bournemouth', true, { home: 0, away: 3 }]);
+});
+
+test('football: a match in play is live (and not also next)', () => {
+  const now = Date.parse('2026-10-31T13:00:00Z');
+  const p = pickMatches([m('2026-10-31T12:30:00Z', 'IN_PLAY', CHE, MUN, [1, 1]), m('2026-11-03T20:00:00Z', 'TIMED', MUN, ROM)], 66, now);
+  assert.deepEqual([p.live.home, p.live.away, p.live.score], ['Chelsea', 'Man United', { home: 1, away: 1 }]);
+  assert.equal(p.next.opponent, 'Roma');
+});
+
+test('football: through the Worker with the key in the header; no key is a 503', async () => {
+  assert.equal((await authed('/v1/football')).status, 503);
+  env.FOOTBALL_KEY = 'fd-key';
+  let seen;
+  globalThis.fetch = async (url, init) => {
+    seen = { url: String(url), key: init.headers['X-Auth-Token'] };
+    return new Response(JSON.stringify({ matches: [m('2099-01-01T15:00:00Z', 'TIMED', MUN, CHE)] }));
+  };
+  const d = await (await authed('/v1/football')).json();
+  assert.equal(seen.key, 'fd-key');
+  assert.match(seen.url, /teams\/66\/matches\?dateFrom=\d{4}-\d\d-\d\d&dateTo=\d{4}-\d\d-\d\d$/);
+  assert.equal(d.next.opponent, 'Chelsea');
+  assert.doesNotMatch(JSON.stringify(d), /fd-key/);
 });
