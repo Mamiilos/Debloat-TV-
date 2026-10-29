@@ -18,6 +18,7 @@ PYTHON ?= python3
 
 build:
 	BUILD_TAG='$(BUILD_TAG)' DEVMODE_UNTIL='$(DEVMODE_UNTIL)' $(PYTHON) scripts/tvconfig.py merge >/dev/null
+	$(PYTHON) scripts/tv_photos.py
 	$(PYTHON) webos/build.py --config out/effective.properties
 
 # Always rebuild: install.py reuses any FreeMyTV-webos.ipk it finds, which after a checkout is the wrong one.

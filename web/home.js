@@ -1614,9 +1614,24 @@
 
   var saverOn = false, idleAt = Date.now(), saverIndex = 0, saverTimer = 0, saverPick = null, SAVER_AFTER = 5 * 60000;
 
-  /** The screensaver's photos: picks with an app on the TV. */
+  /**
+   * The screensaver's photos: picks with an app on the TV, mixed with your own (tv.properties photos_dir and
+   * photos_mix: half alternates, mostly is three of yours to one pick, mine is only yours).
+   */
   function saverPhotos() {
-    return Data.showcase().filter(function (p) { return p.backdrop && Data.usable(p.app); });
+    var picks = Data.showcase().filter(function (p) { return p.backdrop && Data.usable(p.app); });
+    var own = (CONFIG.photos || []).map(function (src) { return {own: true, src: src}; });
+    if (!own.length) return picks;
+    var mix = CONFIG.photosMix, perPick = mix === 'mine' || !picks.length ? Infinity : mix === 'mostly' ? 3 : 1;
+    if (perPick === Infinity) return own;
+    var out = [], o = 0, p = 0;
+    while (o < own.length || p < picks.length) {
+      for (var k = 0; k < perPick && o < own.length; k++) out.push(own[o++]);
+      if (p < picks.length) out.push(picks[p++]);
+      if (o >= own.length && p < picks.length) o = 0;   // more picks than photos: show yours again
+      if (out.length > 400) break;
+    }
+    return out;
   }
 
   function showSaver() {
@@ -1638,12 +1653,17 @@
       var p = photos.length ? photos[saverIndex++ % photos.length] : null;
       var back = front === a ? b : a;
       if (p) {
-        back.style.backgroundImage = 'url(' + Data.image(p.backdrop, 'original') + ')';
+        back.style.backgroundImage = 'url(' + (p.own ? p.src : Data.image(p.backdrop, 'original')) + ')';
+        // Your photos whole, on black (a portrait one would be cropped to a band by cover); the picks fill the screen.
+        back.style.backgroundSize = p.own ? 'contain' : '';
+        back.style.backgroundColor = p.own ? '#000' : '';
+        back.style.backgroundRepeat = p.own ? 'no-repeat' : '';
+        back.style.backgroundPosition = p.own ? 'center' : '';
         back.style.webkitTransform = back.style.transform = 'scale(1.0)';
-        clock.children[2].textContent = p.title;
-        saverPick = p;
+        clock.children[2].textContent = p.own ? '' : p.title;
+        saverPick = p.own ? null : p;   // your own photo: OK only closes, like any other key
         // With Watch from the screensaver on, OK opens this title's app (any other key only closes).
-        var app = Prefs.saverWatch() && Data.appFor(p.app);
+        var app = !p.own && Prefs.saverWatch() && Data.appFor(p.app);
         hint.textContent = app ? trf('Press OK to watch on {app} · any other button to close', {app: app.title}) : '';
         setTimeout(function () {
           setClass(back, 'on', true);
