@@ -434,41 +434,58 @@
     return [f.next.home + ' v ' + f.next.away + ' · ' + (today ? tr('Today') : Data.weekday(at)) + ' ' + Data.time(at), '', today];
   }
 
-  /** The tab row's quiet line without crypto: Developer Mode's warning, the match when it's today, the note, the next
-   *  two trains, then the next fixture; today's events come after a match day's line. */
+  /** One glass chip: a small coloured label, then the text (a string, or a function filling the chip). */
+  function chip(q, kind, label, fill) {
+    var c = el('span', 'chip ' + kind, q);
+    if (label) el('b', '', c, label);
+    if (typeof fill === 'function') fill(c); else c.appendChild(document.createTextNode(fill));
+    return c;
+  }
+
+  /**
+   * The tab row without crypto: glass chips for Developer Mode's warning, the match when it's today, today's events,
+   * the note, the next two trains, then the next fixture. Chips that don't fit go whole, least important first.
+   */
   function renderExtras(q) {
     var warn = devModeWarning();
-    if (warn) el('span', 'q warn', q, warn);
+    if (warn) chip(q, 'warn', '', warn);
     var foot = footballLine();
-    if (foot && foot[2]) el('span', 'q match ' + foot[1], q, foot[0]);
+    if (foot && foot[2]) chip(q, foot[1] === 'late' ? 'live' : 'match', foot[1] === 'late' ? tr('Live') : tr('Match'), foot[0]);
     // Today's events still to come: all-day ones first, then up to three by time.
     var events = Data.agenda;
     if (events.length) {
       var parts = [];
       for (var e = 0; e < events.length && parts.length < 3; e++) if (events[e].allDay) parts.push(events[e].title);
       for (e = 0; e < events.length && parts.length < 3; e++) if (!events[e].allDay) parts.push(Data.time(events[e].start) + ' ' + events[e].title);
-      el('span', 'q agenda', q, tr('Today') + '  ' + parts.join('  ·  '));
+      chip(q, 'agenda', tr('Today'), parts.join('  ·  '));
     }
-    if (Data.note) el('span', 'q note', q, Data.note);
+    if (Data.note) chip(q, 'note', tr('Note'), Data.note);
     var t = Data.trains;
     if (t && t.services && t.services.length) {
-      var line = el('span', 'q trains', q);
-      for (var i = 0; i < t.services.length && i < 2; i++) {
-        var s = t.services[i];
-        if (i) line.appendChild(document.createTextNode('  ·  '));
-        line.appendChild(document.createTextNode(s.destination + ' ' + s.std + ' '));
-        if (s.cancelled) el('span', 'late', line, tr('Cancelled'));
-        else if (s.etd && s.etd !== 'On time') el('span', 'late', line, s.etd);
-      }
+      chip(q, 'trains', tr('Trains'), function (c) {
+        for (var i = 0; i < t.services.length && i < 2; i++) {
+          var s = t.services[i];
+          if (i) c.appendChild(document.createTextNode('  ·  '));
+          c.appendChild(document.createTextNode(s.destination + ' ' + s.std + (s.cancelled || (s.etd && s.etd !== 'On time') ? ' ' : '')));
+          if (s.cancelled) el('span', 'late', c, tr('Cancelled'));
+          else if (s.etd && s.etd !== 'On time') el('span', 'late', c, s.etd);
+        }
+      });
     }
-    if (foot && !foot[2]) el('span', 'q match', q, foot[0]);
+    if (foot && !foot[2]) chip(q, 'match', tr('Match'), foot[0]);
+    // Whole chips only: drop from the end while the row is wider than its room.
+    while (q.lastChild && q.scrollWidth > q.clientWidth + 1) q.removeChild(q.lastChild);
   }
 
   function renderQuotes() {
     var q = $('quotes'), coins = Data.activeCoins();
     q.innerHTML = '';
     renderGreeting();
-    if (!coins.length) renderExtras(q);
+    // Crypto on but no price in yet (Binance halts a currency's pairs now and then): the chips, not an empty row.
+    var priced = false;
+    for (var c = 0; c < coins.length; c++) priced = priced || !isNaN(Data.prices[coins[c]]);
+    setClass(q, 'chips', !priced);
+    if (!priced) { renderExtras(q); return; }
     for (var i = 0; i < coins.length; i++) {
       var item = el('span', 'q', q);
       coin(coins[i], item);

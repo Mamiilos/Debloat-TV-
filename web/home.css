@@ -153,18 +153,33 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #quotes.hide { opacity: 0; }
 .night #quotes { color: rgba(245, 245, 247, 0.62); }
 .night #quotes svg { fill: rgba(245, 245, 247, 0.55); }
-/* Without crypto: the note, the next trains, Developer Mode's warning. One line, cut with … */
-#quotes { max-width: 1160px; overflow: hidden; text-overflow: ellipsis; }
-#quotes .note, #quotes .trains, #quotes .warn, #quotes .match, #quotes .agenda { display: inline; margin-left: 0; padding-left: 24px; }
-#quotes .agenda { color: #1D1D1F; }
-.night #quotes .agenda { color: #F5F5F7; }
-#quotes .match.late { font-weight: 600; }
-#quotes .note { color: #1D1D1F; font-weight: 600; }
-#quotes .late { color: #D70015; font-weight: 600; }
-#quotes .warn { color: #B25000; font-weight: 600; }
-.night #quotes .note { color: #F5F5F7; }
-.night #quotes .late { color: #FF453A; }
-.night #quotes .warn { color: #FFB340; }
+/* Without crypto: glass chips (the note, today's events, the match, trains, Developer Mode's warning), in the tab row. */
+#quotes.chips { top: 172px; height: 44px; line-height: normal; max-width: 1320px; overflow: hidden; color: #1D1D1F; }
+#quotes .chip {
+  display: inline-block;
+  height: 40px;
+  margin-left: 12px;
+  padding: 0 18px;
+  border-radius: 20px;
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 40px;
+  vertical-align: top;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+#quotes .chip b { margin-right: 10px; font-size: 15px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6E6E73; }
+#quotes .chip.note { font-weight: 600; }
+#quotes .chip.note b { color: #0071E3; }
+#quotes .chip.live b, #quotes .chip .late { color: #D70015; font-weight: 600; }
+#quotes .chip.live { font-weight: 600; }
+#quotes .chip.warn { background: rgba(255, 159, 10, 0.22); color: #8A4B00; font-weight: 600; }
+.night #quotes.chips { color: #F5F5F7; }
+.night #quotes .chip { background: rgba(255, 255, 255, 0.12); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14); }
+.night #quotes .chip b { color: rgba(245, 245, 247, 0.6); }
+.night #quotes .chip.note b { color: #64D2FF; }
+.night #quotes .chip.live b, .night #quotes .chip .late { color: #FF453A; }
+.night #quotes .chip.warn { background: rgba(255, 159, 10, 0.24); color: #FFC56B; }
 #dashboard .side.bad { color: #D70015; font-weight: 600; }
 .night #dashboard .side.bad { color: #FF453A; }
 
