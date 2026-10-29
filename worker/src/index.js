@@ -339,7 +339,8 @@ async function calendar(env) {
   if (!text.includes('BEGIN:VCALENDAR')) throw new Error('calendar feed: not iCal');
   const tz = env.CALENDAR_TZ || 'Europe/London';
   const [from, to] = dayBounds(Date.now(), tz);
-  return { tz, from, to, events: eventsBetween(text, from, to, tz) };
+  // feedEvents: how many VEVENTs the feed holds, so "nothing today" can be told from "couldn't read the feed".
+  return { tz, from, to, events: eventsBetween(text, from, to, tz), feedEvents: (text.match(/^BEGIN:VEVENT/gm) || []).length };
 }
 
 // MARK: Notes (make note MSG="..." writes; the TV reads)
