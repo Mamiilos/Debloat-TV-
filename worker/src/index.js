@@ -14,6 +14,9 @@ import { eventsBetween, dayBounds } from './ics.js';
  *   GET /v1/calendar    today's events from CALENDAR_ICS (a calendar's secret iCal address; 10 min cache)
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
+ * Every 15 minutes (cron) it also checks WATCH_SITES ("Name=https://url|..."), and the GitHub card counts them with the
+ * monitoring Workers' sites.
+ *
  * Secrets: TV_TOKEN, ADMIN_TOKEN (writes the note, one per device, comma separated; never on the TV), UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only),
  * FOOTBALL_KEY (football-data.org), CALENDAR_ICS (the calendar's secret iCal address: anyone with it reads the calendar). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
  * separated; empty = any), GITHUB_RECENT (how many recently pushed repos, 6).
@@ -372,14 +375,58 @@ async function notes(request, env) {
 /** [{name, ok, at, failing}] from SITES ("Name:BINDING,..."): each binding is a monitor's STATE KV ({sig, at} in "last"). */
 async function sites(env) {
   const list = (env.SITES || '').split(',').map((x) => x.trim()).filter(Boolean);
-  return Promise.all(list.map(async (item) => {
+  const watched = ((await env.CACHE.get('watch:last', 'json')) || {}).results || [];
+  const fromWatch = watchList(env).map((w) => {
+    const r = watched.find((x) => x.name === w.name);
+    return r ? { name: w.name, ok: r.ok, at: 0, failing: r.ok ? [] : [r.detail] } : { name: w.name, ok: null, at: 0, failing: [] };
+  });
+  return (await Promise.all(list.map(async (item) => {
     const [name, binding] = item.split(':').map((x) => x.trim());
     const kv = env[binding];
     if (!kv) return { name, ok: null, at: 0, failing: [] };
     const last = await kv.get('last', 'json');
     if (!last) return { name, ok: true, at: 0, failing: [] };   // never failed yet: monitors only write news
     return { name, ok: !last.sig, at: last.at || 0, failing: last.sig ? last.sig.split('|') : [] };
-  }));
+  }))).concat(fromWatch);
+}
+
+// MARK: Watched sites (the cron): your other sites, checked every 15 minutes
+
+const WATCH_TIMEOUT = 15000;
+
+export function watchList(env) {
+  return (env.WATCH_SITES || '').split('|').map((x) => x.trim()).filter(Boolean).map((x) => {
+    const i = x.indexOf('=');
+    return { name: x.slice(0, i).trim(), url: x.slice(i + 1).trim() };
+  }).filter((x) => x.name && /^https?:\/\//.test(x.url));
+}
+
+async function probeSite(site) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WATCH_TIMEOUT);
+  const t0 = Date.now();
+  try {
+    const r = await fetch(site.url, { redirect: 'follow', signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; freemytv-sitewatch)' } });
+    return { name: site.name, url: site.url, ok: r.status < 400, detail: `HTTP ${r.status}`, ms: Date.now() - t0 };
+  } catch (e) {
+    const why = e.name === 'AbortError' ? 'no answer in 15 s' : String(e.message || e).replace(/^.*?: /, '').slice(0, 80);
+    return { name: site.name, url: site.url, ok: false, detail: why, ms: Date.now() - t0 };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Checks them all; writes KV only when the result changes or hourly (KV's free writes). */
+export async function watchSites(env, now = Date.now()) {
+  const results = await Promise.all(watchList(env).map(probeSite));
+  const sig = results.map((r) => `${r.name}:${r.ok ? 'up' : r.detail}`).join('|');
+  const last = (await env.CACHE.get('watch:last', 'json')) || {};
+  if (last.sig !== sig || now - (last.at || 0) >= HOUR) {
+    await env.CACHE.put('watch:last', JSON.stringify({ sig, at: now, results }));
+  }
+  console.log(JSON.stringify({ watched: results.length, down: results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.detail}`) }));
+  return results;
 }
 
 async function health(env) {
@@ -390,6 +437,10 @@ async function health(env) {
 }
 
 export default {
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(watchSites(env));
+  },
+
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });

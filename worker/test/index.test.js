@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { pickMatches } from '../src/index.js';
+import worker, { pickMatches, watchSites, watchList } from '../src/index.js';
 
 function kv() {
   const m = new Map();
@@ -383,4 +383,44 @@ test('notes: ADMIN_TOKEN can list one token per device; each works, and dropping
   env.ADMIN_TOKEN = 'mac-token';
   assert.equal((await req('/v1/notes', { method: 'POST', token: 'phone-token', body: { text: 'x' } })).status, 401);
   assert.equal((await req('/v1/notes', { method: 'DELETE', token: 'mac-token' })).status, 200);
+});
+
+// ---- watched sites (the cron)
+
+test('watched sites: up, down by status, down by no answer; on the card with the monitors; KV written only on change', async () => {
+  env.WATCH_SITES = 'Link=https://link.example|Blog=https://blog.example|Shop=https://shop.example| broken entry ';
+  assert.deepEqual(watchList(env).map((x) => x.name), ['Link', 'Blog', 'Shop']);
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('blog')) throw new TypeError('fetch failed: getaddrinfo ENOTFOUND blog.example');
+    return new Response('', { status: String(url).includes('shop') ? 503 : 200 });
+  };
+  const r = await watchSites(env, 1000);
+  assert.deepEqual(r.map((x) => [x.name, x.ok]), [['Link', true], ['Blog', false], ['Shop', false]]);
+  assert.match(r[1].detail, /ENOTFOUND/);
+  assert.equal(r[2].detail, 'HTTP 503');
+  const writes = env.CACHE.writes;
+  await watchSites(env, 1000 + 60000);                 // same results a minute later: no write
+  assert.equal(env.CACHE.writes, writes);
+  await watchSites(env, 1000 + 3600000);               // an hour on: one write
+  assert.equal(env.CACHE.writes, writes + 1);
+
+  env.GITHUB_TOKEN = 'gh-token';
+  env.GITHUB_RECENT = '3';
+  env.SITES = 'Coach:SITE_B';
+  env.SITE_B = kv();
+  fakeGitHub();
+  const card = await (await authed('/v1/dashboard')).json();
+  assert.deepEqual(card.sites, { up: 2, total: 4 });   // Coach (never failed) + Link up; Blog, Shop down
+  const d = await (await authed('/v1/dashboard/details')).json();
+  assert.deepEqual(d.sites.map((s) => [s.name, s.ok]), [['Coach', true], ['Link', true], ['Blog', false], ['Shop', false]]);
+  assert.equal(d.sites[3].failing[0], 'HTTP 503');
+});
+
+test('watched sites not checked yet show as not yet, not as down', async () => {
+  env.WATCH_SITES = 'Link=https://link.example';
+  env.GITHUB_TOKEN = 'gh-token';
+  env.GITHUB_RECENT = '3';
+  fakeGitHub();
+  const d = await (await authed('/v1/dashboard/details')).json();
+  assert.deepEqual(d.sites.map((s) => [s.name, s.ok]), [['Link', null]]);
 });

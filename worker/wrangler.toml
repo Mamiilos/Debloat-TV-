@@ -7,6 +7,9 @@ main = "src/index.js"
 compatibility_date = "2025-06-01"
 workers_dev = true
 
+[triggers]
+crons = ["*/15 * * * *"]
+
 [observability]
 enabled = true
 
@@ -18,6 +21,8 @@ FOOTBALL_TEAM = "66"
 CALENDAR_TZ = "Europe/London"
 # Sites on the GitHub card: "Name:BINDING", each binding a monitoring Worker's STATE KV (read only here).
 SITES = "Sweet Dezire:SITE_SWEETDEZIRE,RAPIDER:SITE_RAPIDER"
+# Your other sites (mahirahmed.link), checked every 15 minutes by the cron below: "Name=https://url|...".
+WATCH_SITES = "Link page=https://mahirahmed.link|Blog=https://mahirahmed691.tech|Prolific Digital Tech=https://www.prolificdigitaltech.co.uk|FlickFinder=https://flickfinder-nu.vercel.app|Sakinah=https://www.mysakinah.app|Motiv=https://www.motivcarhire.com|Kiano London=https://kiano.london|KARV'D=https://www.karvd.uk|Blanco Coffee House=https://blancocoffeehouse.com|D Apartment Sylhet=https://www.dapartmentsylhet.com"
 
 # Health (each source's last success and failure) and the answers of sources that allow caching; never UKHO's.
 # The id comes from `npx wrangler kv namespace create CACHE`.
