@@ -382,8 +382,18 @@
 
   var TAB_KIND = [null, 'movie', 'tv'];
 
+  /** "Good evening, Mahir & Mariam" (tv.properties: greeting) in place of "For You", by the hour. */
+  function renderGreeting() {
+    var names = CONFIG.greeting, h = new Date().getHours();
+    var text = !names ? tr('For You')
+      : h >= 5 && h < 12 ? trf('Good morning, {names}', {names: names})
+      : h >= 12 && h < 18 ? trf('Good afternoon, {names}', {names: names})
+      : trf('Good evening, {names}', {names: names});
+    if ($('title').textContent !== text) $('title').textContent = text;
+  }
+
   function renderTop() {
-    $('title').textContent = tr('For You');
+    renderGreeting();
     var tabs = $('tabs');
     tabs.innerHTML = '';
     var names = [tr('Explore'), tr('Movies'), tr('Shows')];
@@ -403,9 +413,36 @@
     }
   }
 
+  /** Developer Mode's end, when it's 7 days away or less (the TV removes the app when it runs out). */
+  function devModeWarning() {
+    var until = (CONFIG.build || {}).devModeUntil;
+    if (!until || until - Date.now() > 7 * 86400000) return '';
+    return trf('Developer Mode ends {date}: press EXTEND in its app', {date: formatDate('format|EEEE, MMMM d', until)});
+  }
+
+  /** The tab row's quiet line without crypto: Developer Mode's warning, the note, then the next two trains. */
+  function renderExtras(q) {
+    var warn = devModeWarning();
+    if (warn) el('span', 'q warn', q, warn);
+    if (Data.note) el('span', 'q note', q, Data.note);
+    var t = Data.trains;
+    if (t && t.services && t.services.length) {
+      var line = el('span', 'q trains', q);
+      for (var i = 0; i < t.services.length && i < 2; i++) {
+        var s = t.services[i];
+        if (i) line.appendChild(document.createTextNode('  ·  '));
+        line.appendChild(document.createTextNode(s.destination + ' ' + s.std + ' '));
+        if (s.cancelled) el('span', 'late', line, tr('Cancelled'));
+        else if (s.etd && s.etd !== 'On time') el('span', 'late', line, s.etd);
+      }
+    }
+  }
+
   function renderQuotes() {
     var q = $('quotes'), coins = Data.activeCoins();
     q.innerHTML = '';
+    renderGreeting();
+    if (!coins.length) renderExtras(q);
     for (var i = 0; i < coins.length; i++) {
       var item = el('span', 'q', q);
       coin(coins[i], item);
@@ -690,7 +727,10 @@
   function renderDashboard(card, d) {
     el('div', 'head', card, 'GitHub');
     var stale = Data.staleness(Data.dashboardAt, 3 * 60000);
-    el('div', 'side', card, stale ? trf('quotes|{ago}', {ago: stale}) : trf('Recent repos: {n}', {n: d.repos}));
+    // The sites the monitoring Workers watch, when any: green while all are up, red when one isn't.
+    var sites = d.sites && d.sites.total ? d.sites : null;
+    el('div', 'side' + (sites && sites.up < sites.total ? ' bad' : ''), card,
+      stale ? trf('quotes|{ago}', {ago: stale}) : sites ? trf('Sites up: {up}/{total}', sites) : trf('Recent repos: {n}', {n: d.repos}));
     var rows = [
       [tr('Builds'), trf('{n} passing', {n: d.builds.passing}), d.builds.failing ? trf('{n} failing', {n: d.builds.failing}) : ''],
       [tr('To review'), String(d.reviews), ''],
@@ -1225,6 +1265,13 @@
     else if (!d) line('…', '');
     else {
       var states = {passing: tr('Passing'), failing: tr('Failing'), running: tr('Running'), none: tr('No builds')};
+      if (d.sites && d.sites.length) {
+        section(tr('Sites'));
+        for (var s2 = 0; s2 < d.sites.length; s2++) {
+          var site = d.sites[s2];
+          line(site.name, site.ok === null ? tr('Not yet') : site.ok ? tr('Up') : tr('Down') + ' · ' + site.failing.join(', '), site.ok === false);
+        }
+      }
       section(tr('Builds'));
       for (var i = 0; i < d.repos.length; i++) {
         var b = d.repos[i].build;
@@ -1729,6 +1776,7 @@
   setInterval(function () {
     checkNight();
     Data.refresh();
+    renderGreeting();
     if (!saverOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) showSaver();
     if (saverOn) tickSaverClock($('saver').querySelector('.clock'));
   }, 30000);

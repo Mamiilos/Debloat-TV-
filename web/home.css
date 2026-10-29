@@ -153,6 +153,17 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #quotes.hide { opacity: 0; }
 .night #quotes { color: rgba(245, 245, 247, 0.62); }
 .night #quotes svg { fill: rgba(245, 245, 247, 0.55); }
+/* Without crypto: the note, the next trains, Developer Mode's warning. One line, cut with … */
+#quotes { max-width: 1160px; overflow: hidden; text-overflow: ellipsis; }
+#quotes .note, #quotes .trains, #quotes .warn { display: inline; margin-left: 0; padding-left: 24px; }
+#quotes .note { color: #1D1D1F; font-weight: 600; }
+#quotes .late { color: #D70015; font-weight: 600; }
+#quotes .warn { color: #B25000; font-weight: 600; }
+.night #quotes .note { color: #F5F5F7; }
+.night #quotes .late { color: #FF453A; }
+.night #quotes .warn { color: #FFB340; }
+#dashboard .side.bad { color: #D70015; font-weight: 600; }
+.night #dashboard .side.bad { color: #FF453A; }
 
 /* Live TV, HDMI Inputs and Settings: glass circles; the focused one turns white, with its name below. */
 .round {

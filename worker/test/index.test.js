@@ -4,11 +4,14 @@ import worker from '../src/index.js';
 
 function kv() {
   const m = new Map();
-  return {
+  const store = {
     m,
+    writes: 0,
     async get(k, type) { const v = m.get(k); return v === undefined ? null : type === 'json' ? JSON.parse(v) : v; },
-    async put(k, v) { m.set(k, v); },
+    async put(k, v) { store.writes++; m.set(k, v); },
+    async delete(k) { store.writes++; m.delete(k); },
   };
+  return store;
 }
 
 let env, calls, ukhoDown;
@@ -197,4 +200,110 @@ test('details: names, builds, PRs with their checks, alerts by severity; one Git
   const c = await (await authed('/v1/dashboard')).json();
   assert.equal(calls.length, n);   // the counts come from the same cached details
   assert.equal(c.alerts, 149);
+});
+
+// ---- trains, notes, sites, and staying inside KV's free writes
+
+const req = (path, { method = 'GET', token = 'secret-token', body, ip } = {}) => worker.fetch(new Request('https://w.example' + path, {
+  method, body: body === undefined ? undefined : JSON.stringify(body),
+  headers: { ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(ip ? { 'CF-Connecting-IP': ip } : {}) },
+}), env);
+
+test('trains: Huxley2 departures, cancellations flagged, messages without HTML', async () => {
+  env.TRAINS_CRS = 'bkq';
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), cf: init.cf });
+    return new Response(JSON.stringify({
+      locationName: 'Hamilton Square',
+      nrccMessages: [{ value: '<p>Disruption between <b>A</b> &amp; B</p>' }],
+      trainServices: [
+        { std: '08:10', etd: 'On time', platform: '1', destination: [{ locationName: 'Liverpool Central' }] },
+        { std: '08:14', etd: 'Cancelled', isCancelled: true, destination: [{ locationName: 'West Kirby' }] },
+      ],
+    }));
+  };
+  const t = await (await req('/v1/trains')).json();
+  assert.match(seen[0].url, /departures\/BKQ\/8$/);
+  assert.equal(seen[0].cf.cacheTtl, 60);
+  assert.equal(t.station, 'Hamilton Square');
+  assert.deepEqual(t.services.map((x) => [x.std, x.destination, x.cancelled]), [['08:10', 'Liverpool Central', false], ['08:14', 'West Kirby', true]]);
+  assert.deepEqual(t.messages, ['Disruption between A & B']);
+});
+
+test('trains: Huxley2 down is a 502 with the reason, not a crash', async () => {
+  globalThis.fetch = async () => new Response('', { status: 503 });
+  const r = await req('/v1/trains');
+  assert.equal(r.status, 502);
+  assert.match((await r.json()).error, /HTTP 503/);
+});
+
+test('notes: the TV reads; only ADMIN_TOKEN writes or clears; length and emptiness checked', async () => {
+  env.ADMIN_TOKEN = 'admin-token';
+  assert.deepEqual(await (await req('/v1/notes')).json(), { text: '', at: 0 });
+  assert.equal((await req('/v1/notes', { method: 'POST', body: { text: 'Bins out' } })).status, 401);        // TV token
+  assert.equal((await req('/v1/notes', { method: 'POST', token: null, body: { text: 'x' } })).status, 401);
+  assert.equal((await req('/v1/notes', { method: 'POST', token: 'admin-token', body: { text: '   ' } })).status, 400);
+  assert.equal((await req('/v1/notes', { method: 'POST', token: 'admin-token', body: { text: 'x'.repeat(141) } })).status, 400);
+  const w = await req('/v1/notes', { method: 'POST', token: 'admin-token', body: { text: '  Bins out\n tonight ' } });
+  assert.equal((await w.json()).text, 'Bins out tonight');
+  assert.equal((await (await req('/v1/notes')).json()).text, 'Bins out tonight');
+  assert.equal((await req('/v1/notes', { method: 'DELETE', token: 'admin-token' })).status, 200);
+  assert.equal((await (await req('/v1/notes')).json()).text, '');
+  assert.equal((await req('/v1/tides', { method: 'POST', token: 'admin-token' })).status, 405);           // only notes take writes
+});
+
+test('notes: ALLOWED_IPS applies to writes too', async () => {
+  env.ADMIN_TOKEN = 'admin-token';
+  env.ALLOWED_IPS = '203.0.113.7';
+  assert.equal((await req('/v1/notes', { method: 'POST', token: 'admin-token', body: { text: 'x' }, ip: '198.51.100.1' })).status, 403);
+});
+
+test('sites: the monitors\' last results, counts on the card, names only in details', async () => {
+  env.GITHUB_TOKEN = 'gh-token';
+  env.GITHUB_RECENT = '3';
+  env.SITES = 'Shop:SITE_A,Coach:SITE_B,Missing:SITE_C';
+  env.SITE_A = kv();
+  env.SITE_B = kv();
+  await env.SITE_B.put('last', JSON.stringify({ sig: '/hub content|/login status', at: 123 }));
+  fakeGitHub();
+  const card = await (await authed('/v1/dashboard')).json();
+  assert.deepEqual(card.sites, { up: 1, total: 3 });
+  const d = await (await authed('/v1/dashboard/details')).json();
+  assert.deepEqual(d.sites, [
+    { name: 'Shop', ok: true, at: 0, failing: [] },
+    { name: 'Coach', ok: false, at: 123, failing: ['/hub content', '/login status'] },
+    { name: 'Missing', ok: null, at: 0, failing: [] },
+  ]);
+  assert.doesNotMatch(JSON.stringify(card), /Shop|Coach/);
+});
+
+test('KV free tier: an hour of healthy tide requests writes health once', async () => {
+  for (let i = 0; i < 30; i++) await authed('/v1/tides');
+  const healthWrites = env.CACHE.writes;
+  assert.ok(healthWrites <= 2, `${healthWrites} writes (one per station at most)`);
+});
+
+test('KV free tier: with Cloudflare\'s cache, the dashboard writes its KV copy at most every 30 minutes', async () => {
+  const store = new Map();
+  globalThis.caches = { default: {
+    async match(u) { const e = store.get(u); return e && e.until > Date.now() ? new Response(e.body) : undefined; },
+    async put(u, r) { const age = Number(/max-age=(\d+)/.exec(r.headers.get('Cache-Control'))[1]); store.set(u, { body: await r.text(), until: Date.now() + age * 1000 }); },
+  } };
+  try {
+    env.GITHUB_TOKEN = 'gh-token';
+    env.GITHUB_RECENT = '3';
+    const calls = fakeGitHub();
+    await authed('/v1/dashboard');
+    const after1 = calls.length;
+    await authed('/v1/dashboard');
+    assert.equal(calls.length, after1);                         // served from Cloudflare's cache
+    const kvWrites = env.CACHE.writes;
+    store.clear();                                               // the 3 minutes are up
+    await authed('/v1/dashboard');
+    assert.ok(calls.length > after1);                            // asked GitHub again...
+    assert.equal(env.CACHE.writes, kvWrites);                    // ...but the KV copy is under 30 min old: no write
+  } finally {
+    delete globalThis.caches;
+  }
 });

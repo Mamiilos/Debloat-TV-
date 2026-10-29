@@ -6,9 +6,11 @@
  *   GET /v1/tides       the next week of high and low water at STATIONS (UKHO's Admiralty API, asked every time)
  *   GET /v1/dashboard   counts for GitHub: the latest builds, reviews waiting, your PRs, Dependabot alerts (3 min cache)
  *   GET /v1/dashboard/details   the same with repo names and PR titles, for the sheet the TV opens on purpose
+ *   GET /v1/trains      the next departures from TRAINS_CRS (Huxley2's National Rail feed; Cloudflare caches 60 s)
+ *   GET /v1/notes       the note shown on the TV; POST {"text"} or DELETE it with ADMIN_TOKEN (make note)
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
- * Secrets: TV_TOKEN, UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
+ * Secrets: TV_TOKEN, ADMIN_TOKEN (writes the note; never on the TV), UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
  * separated; empty = any), GITHUB_RECENT (how many recently pushed repos, 6).
  * /v1/dashboard holds counts only, never repo names or titles: the TV's card is on a shared screen.
  */
@@ -18,7 +20,7 @@ const KEEP = 3 * DAY;   // how long KV keeps a cached answer (to serve stale whe
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization',
   'Access-Control-Max-Age': '86400',
 };
@@ -76,12 +78,26 @@ function stations(env) {
   });
 }
 
-/** Notes a source's success or failure for /health (no data: some sources' terms forbid storing it). */
+const HOUR = 3600000;
+const KV_FALLBACK_EVERY = 30 * 60000;   // KV's free tier allows 1,000 writes a day: the stale copy is refreshed this often
+
+/**
+ * Notes a source's success or failure for /health (no data: some sources' terms forbid storing it). Writes KV only
+ * when the state changes, or hourly while it holds, to stay inside KV's free writes.
+ */
 async function noteHealth(env, key, error) {
   const health = (await env.CACHE.get('health:' + key, 'json')) || {};
-  const next = error ? { ...health, failedAt: Date.now(), error } : { ...health, okAt: Date.now() };
+  const now = Date.now();
+  const failing = (health.failedAt || 0) > (health.okAt || 0);
+  if (!error && !failing && health.okAt && now - health.okAt < HOUR) return;
+  if (error && failing && health.error === error && now - health.failedAt < HOUR) return;
+  const next = error ? { ...health, failedAt: now, error } : { ...health, okAt: now };
   await env.CACHE.put('health:' + key, JSON.stringify(next), { expirationTtl: KEEP / 1000 });
 }
+
+/** Cloudflare's cache (free, no write limit) for fresh answers; absent in tests, where KV alone serves. */
+const edgeCache = () => (typeof caches !== 'undefined' && caches.default) || null;
+const cacheUrl = (key) => `https://freemytv-bff.cache/${encodeURIComponent(key)}`;
 
 /** Fetches every time, for sources that may not be stored (UKHO's free Discovery tier forbids caching). */
 async function live(env, key, load) {
@@ -101,12 +117,24 @@ async function live(env, key, load) {
  * with stale: true and the error, so the TV can say "stale since"; the failure is logged for Workers Logs.
  */
 async function cached(env, key, fresh, load) {
+  const cache = edgeCache();
+  if (cache) {
+    const hit = await cache.match(cacheUrl(key));
+    if (hit) return { ...(await hit.json()), stale: false };
+  }
   const old = await env.CACHE.get(key, 'json');
-  if (old && Date.now() - old.fetchedAt < fresh) return { ...old, stale: false };
+  if (!cache && old && Date.now() - old.fetchedAt < fresh) return { ...old, stale: false };
   try {
     const data = await load();
     const entry = { fetchedAt: Date.now(), data };
-    await env.CACHE.put(key, JSON.stringify(entry), { expirationTtl: KEEP / 1000 });
+    if (cache) {
+      await cache.put(cacheUrl(key), new Response(JSON.stringify(entry), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${Math.round(fresh / 1000)}` },
+      }));
+    }
+    if (!old || Date.now() - old.fetchedAt >= (cache ? KV_FALLBACK_EVERY : 0)) {
+      await env.CACHE.put(key, JSON.stringify(entry), { expirationTtl: KEEP / 1000 });
+    }
     await noteHealth(env, key);
     return { ...entry, stale: false };
   } catch (e) {
@@ -222,6 +250,11 @@ async function details(env) {
 }
 
 /** The card's counts: never a name. */
+/** The card's counts: never a name. */
+function siteCounts(list) {
+  return { up: list.filter((x) => x.ok === true).length, total: list.length };
+}
+
 function counts(d) {
   const builds = { passing: 0, failing: 0, running: 0 };
   let alerts = 0;
@@ -230,6 +263,68 @@ function counts(d) {
     alerts += r.alerts.critical + r.alerts.high + r.alerts.medium + r.alerts.low;
   }
   return { repos: d.repos.length, builds, reviews: d.reviews.total, pullRequests: { open: d.mine.total, failing: d.mine.failing }, alerts };
+}
+
+// MARK: Trains
+
+const decode = (t) => String(t || '').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+
+async function trains(env) {
+  const crs = (env.TRAINS_CRS || 'BKQ').toUpperCase();
+  const r = await fetch(`https://huxley2.azurewebsites.net/departures/${encodeURIComponent(crs)}/8`, {
+    headers: { 'User-Agent': 'freemytv-bff' }, cf: { cacheTtl: 60, cacheEverything: true },
+  });
+  if (!r.ok) throw new Error(`Huxley2 ${crs}: HTTP ${r.status}`);
+  const d = await r.json();
+  return {
+    station: d.locationName || crs,
+    crs,
+    services: (d.trainServices || []).map((t) => ({
+      std: t.std,
+      etd: t.etd,
+      destination: (t.destination || []).map((x) => x.locationName).join(' & '),
+      platform: t.platform || null,
+      cancelled: Boolean(t.isCancelled) || t.etd === 'Cancelled',
+    })),
+    messages: (d.nrccMessages || []).map((m) => decode(m.value)).filter(Boolean),
+  };
+}
+
+// MARK: Notes (make note MSG="..." writes; the TV reads)
+
+const NOTE_MAX = 140;
+
+async function notes(request, env) {
+  if (request.method === 'GET') return json((await env.CACHE.get('note', 'json')) || { text: '', at: 0 });
+  const admin = request.headers.get('Authorization') || '';
+  if (!env.ADMIN_TOKEN || !sameSecret(admin, 'Bearer ' + env.ADMIN_TOKEN)) return json({ error: 'admin token' }, 401);
+  if (request.method === 'DELETE') {
+    await env.CACHE.delete('note');
+    return json({ text: '', at: 0 });
+  }
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'JSON body {"text": "..."}' }, 400); }
+  const text = String((body && body.text) || '').replace(/\s+/g, ' ').trim();
+  if (!text) return json({ error: 'empty note' }, 400);
+  if (text.length > NOTE_MAX) return json({ error: `at most ${NOTE_MAX} characters` }, 400);
+  const note = { text, at: Date.now() };
+  await env.CACHE.put('note', JSON.stringify(note));
+  return json(note);
+}
+
+// MARK: Sites (the monitoring Workers' last results, from their KV)
+
+/** [{name, ok, at, failing}] from SITES ("Name:BINDING,..."): each binding is a monitor's STATE KV ({sig, at} in "last"). */
+async function sites(env) {
+  const list = (env.SITES || '').split(',').map((x) => x.trim()).filter(Boolean);
+  return Promise.all(list.map(async (item) => {
+    const [name, binding] = item.split(':').map((x) => x.trim());
+    const kv = env[binding];
+    if (!kv) return { name, ok: null, at: 0, failing: [] };
+    const last = await kv.get('last', 'json');
+    if (!last) return { name, ok: true, at: 0, failing: [] };   // never failed yet: monitors only write news
+    return { name, ok: !last.sig, at: last.at || 0, failing: last.sig ? last.sig.split('|') : [] };
+  }));
 }
 
 async function health(env) {
@@ -243,18 +338,26 @@ export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-    if (request.method !== 'GET') return json({ error: 'GET only' }, 405);
+    const writesNote = path === '/v1/notes' && (request.method === 'POST' || request.method === 'DELETE');
+    if (request.method !== 'GET' && !writesNote) return json({ error: 'GET only' }, 405);
     if (!allowedIp(request, env)) return json({ error: 'not from an allowed address' }, 403);
     if (path === '/health') return json(await health(env));
 
+    if (writesNote) return notes(request, env);
     const auth = request.headers.get('Authorization') || '';
     if (!env.TV_TOKEN || !sameSecret(auth, 'Bearer ' + env.TV_TOKEN)) return json({ error: 'token' }, 401);
     try {
+      if (path === '/v1/notes') return notes(request, env);
+      if (path === '/v1/trains') {
+        const t = await live(env, 'trains', () => trains(env)).catch((e) => ({ error: String(e.message || e) }));
+        return json(t, t.error ? 502 : 200);
+      }
       if (path === '/v1/tides') return json(await tides(env));
       if (path === '/v1/dashboard' || path === '/v1/dashboard/details') {
         if (!env.GITHUB_TOKEN) return json({ error: 'no GITHUB_TOKEN' }, 503);
         const c = await cached(env, 'github', DASHBOARD_FRESH, () => details(env));
-        const data = path === '/v1/dashboard' ? counts(c.data) : c.data;
+        const siteList = await sites(env);
+        const data = path === '/v1/dashboard' ? { ...counts(c.data), sites: siteCounts(siteList) } : { ...c.data, sites: siteList };
         return json({ ...data, fetchedAt: c.fetchedAt, stale: c.stale, error: c.error });
       }
     } catch (e) {

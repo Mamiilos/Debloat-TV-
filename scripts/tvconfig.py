@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TRACKED = os.path.join(ROOT, 'tv.properties')
 SECRETS = os.path.join(ROOT, 'config.properties')
 OUT = os.path.join(ROOT, 'out', 'effective.properties')
-SECRET_KEYS = ('tmdb_key', 'watchmode_key', 'plex_url', 'plex_token', 'worker_token')
+SECRET_KEYS = ('tmdb_key', 'watchmode_key', 'plex_url', 'plex_token', 'worker_token', 'worker_admin_token')
 
 
 def read(path):

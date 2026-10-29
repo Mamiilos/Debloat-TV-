@@ -350,6 +350,43 @@ var Data = (function () {
     });
   }
 
+  // MARK: - Trains and the note (the Worker: Huxley2's departures; the note make note writes)
+
+  var trains = null, trainsAt = 0, fetchingTrains = false, note = null, noteAt = 0, fetchingNote = false;
+
+  function workerGet(path, done) {
+    get(WORKER.url.replace(/\/+$/, '') + path, {Authorization: 'Bearer ' + WORKER.token}, done);
+  }
+
+  function refreshTrains() {
+    var now = Date.now();
+    if (!WORKER.url || !WORKER.trains || fetchingTrains || (now - trainsAt < 60000 && now >= trainsAt)) return;
+    fetchingTrains = true;
+    workerGet('/v1/trains', function (err, body) {
+      fetchingTrains = false;
+      if (!err && !(body && body.services)) err = new Error((body && body.error) || 'no trains');
+      noteFetch('trains', err);
+      if (err) return;
+      trains = body;
+      trainsAt = Date.now();
+      changed();
+    });
+  }
+
+  function refreshNote() {
+    var now = Date.now();
+    if (!WORKER.url || !WORKER.notes || fetchingNote || (now - noteAt < 120000 && now >= noteAt)) return;
+    fetchingNote = true;
+    workerGet('/v1/notes', function (err, body) {
+      fetchingNote = false;
+      noteFetch('note', err);
+      if (err) return;
+      noteAt = Date.now();
+      var text = body && body.text || '';
+      if (text !== (note || '')) { note = text; changed(); }
+    });
+  }
+
   // MARK: - Picks (TMDB)
 
   var KEY = Prefs.tmdbKey();
@@ -686,7 +723,11 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); refreshDashboard(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); refreshDashboard(); refreshTrains(); refreshNote(); },
+    /** The next departures ({station, services: [{std, etd, destination, cancelled}], messages}), or null. */
+    get trains() { return trains; },
+    /** The note from make note, or ''. */
+    get note() { return note || ''; },
     /** The GitHub counts while in work hours ({repos, builds, reviews, pullRequests, alerts}), else null. */
     get dashboard() { return WORKER.dashboard && inWorkHours(Date.now()) ? dash : null; },
     get dashboardAt() { return dashAt; },
@@ -711,6 +752,7 @@ var Data = (function () {
       if (KEY) out.push({name: tr('Picks'), at: listAt, failed: failures.picks});
       if (WORKER.url && WORKER.tides) out.push({name: tr('Tides'), at: tidesAt, failed: tidesFailure()});
       if (WORKER.url && WORKER.dashboard) out.push({name: 'GitHub', at: dashAt, failed: failures.dashboard});
+      if (WORKER.url && WORKER.trains) out.push({name: trains ? trains.station : 'Trains', at: trainsAt, failed: failures.trains});
       for (var i = 0; i < out.length; i++) if (out[i].failed && out[i].failed.at < out[i].at) out[i].failed = null;
       return out;
     },

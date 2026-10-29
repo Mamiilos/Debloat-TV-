@@ -4,13 +4,15 @@
 #   make uninstall [TV=<ip>]    remove it from the TV
 #   make release [TV=<ip>]      build, install, then tag the commit tv-YYYY-MM-DD-N with the settings' hash
 #   make config-hash            the hash of the settings a build would use (secrets left out)
+#   make note MSG="..."         the note on the TV's home screen (through the Worker; no reinstall)
+#   make note-clear             remove it
 # Settings are in tv.properties (tracked); the keys stay in config.properties (gitignored).
 # Roll back: git checkout tv-YYYY-MM-DD-N && make install (code and settings both come back; the keys are today's).
 
 TV ?= 192.168.0.4
 PYTHON ?= python3
 
-.PHONY: build install uninstall release config-hash
+.PHONY: build install uninstall release config-hash note note-clear
 
 build:
 	BUILD_TAG='$(BUILD_TAG)' DEVMODE_UNTIL='$(DEVMODE_UNTIL)' $(PYTHON) scripts/tvconfig.py merge >/dev/null
@@ -28,6 +30,13 @@ uninstall:
 
 config-hash:
 	@$(PYTHON) scripts/tvconfig.py hash
+
+note:
+	@test -n "$(MSG)" || { echo 'Usage: make note MSG="Bins out tonight"'; exit 2; }
+	@$(PYTHON) scripts/note.py "$(MSG)"
+
+note-clear:
+	@$(PYTHON) scripts/note.py --clear
 
 # Refuses a dirty tree, so the tag is exactly what went on the TV. The tag's name is chosen first (About this TV shows
 # it): one more than the day's highest, never a gap. It's made only after the install succeeded. The tagging stays off the $(MAKE) line: make runs that line even

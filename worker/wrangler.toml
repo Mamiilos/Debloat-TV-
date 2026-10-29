@@ -12,9 +12,21 @@ enabled = true
 
 [vars]
 STATIONS = "0451:Mersey,0461:Dee"
+TRAINS_CRS = "BKQ"
+# Sites on the GitHub card: "Name:BINDING", each binding a monitoring Worker's STATE KV (read only here).
+SITES = "Sweet Dezire:SITE_SWEETDEZIRE,RAPIDER:SITE_RAPIDER"
 
 # Health (each source's last success and failure) and the answers of sources that allow caching; never UKHO's.
 # The id comes from `npx wrangler kv namespace create CACHE`.
 [[kv_namespaces]]
 binding = "CACHE"
 id = "c1db6ca58e7042b99917a72a245a4322"
+
+# The monitoring Workers' last results (sweetdezire ops/uptime-worker, rapider-site ops/site-check-worker).
+[[kv_namespaces]]
+binding = "SITE_SWEETDEZIRE"
+id = "53280a8f602d4196a56560ab957249d9"
+
+[[kv_namespaces]]
+binding = "SITE_RAPIDER"
+id = "534d27f7ed3e4b91b533c5159895dbc6"
