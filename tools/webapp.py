@@ -71,7 +71,8 @@ def read_config(path):
                    'tides': values.get('tides', 'false').lower() == 'true',
                    'dashboard': values.get('dashboard', 'false').lower() == 'true', 'workHours': values.get('work_hours', ''),
                    'trains': values.get('trains', 'false').lower() == 'true', 'notes': values.get('notes', 'false').lower() == 'true',
-                   'football': values.get('football', 'false').lower() == 'true'},
+                   'football': values.get('football', 'false').lower() == 'true',
+                   'calendar': values.get('calendar', 'false').lower() == 'true'},
         # "Good evening, <greeting>" in place of "For You" (empty: "For You").
         'greeting': values.get('greeting', ''),
         # What was built, for About this TV (written by scripts/tvconfig.py; empty otherwise).

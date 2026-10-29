@@ -390,6 +390,23 @@ var Data = (function () {
     });
   }
 
+  var agenda = null, agendaAt = 0, fetchingAgenda = false;
+
+  function refreshCalendar() {
+    var now = Date.now();
+    if (!WORKER.url || !WORKER.calendar || fetchingAgenda || (now - agendaAt < 10 * 60000 && now >= agendaAt)) return;
+    fetchingAgenda = true;
+    workerGet('/v1/calendar', function (err, body) {
+      fetchingAgenda = false;
+      if (!err && !(body && body.events)) err = new Error((body && body.error) || 'no events');
+      noteFetch('calendar', err || (body.stale && body.error ? new Error(body.error) : null));
+      if (err) return;
+      agenda = body;
+      agendaAt = Date.now();
+      changed();
+    });
+  }
+
   function refreshNote() {
     var now = Date.now();
     if (!WORKER.url || !WORKER.notes || fetchingNote || (now - noteAt < 120000 && now >= noteAt)) return;
@@ -740,7 +757,12 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); refreshDashboard(); refreshTrains(); refreshNote(); refreshFootball(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshTides(); refreshDashboard(); refreshTrains(); refreshNote(); refreshFootball(); refreshCalendar(); },
+    /** Today's events still to come or under way ([{title, start, end, allDay}]), or []. */
+    get agenda() {
+      var now = Date.now();
+      return agenda ? agenda.events.filter(function (e) { return e.end > now; }) : [];
+    },
     /** The team's {team, live, next, last} matches, or null. */
     get football() { return match; },
     /** The next departures ({station, services: [{std, etd, destination, cancelled}], messages}), or null. */
@@ -773,6 +795,7 @@ var Data = (function () {
       if (WORKER.url && WORKER.dashboard) out.push({name: 'GitHub', at: dashAt, failed: failures.dashboard});
       if (WORKER.url && WORKER.trains) out.push({name: trains ? trains.station : 'Trains', at: trainsAt, failed: failures.trains});
       if (WORKER.url && WORKER.football) out.push({name: match && match.team || 'Football', at: matchAt, failed: failures.football});
+      if (WORKER.url && WORKER.calendar) out.push({name: tr('Calendar'), at: agendaAt, failed: failures.calendar});
       for (var i = 0; i < out.length; i++) if (out[i].failed && out[i].failed.at < out[i].at) out[i].failed = null;
       return out;
     },

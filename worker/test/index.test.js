@@ -351,3 +351,26 @@ test('football: through the Worker with the key in the header; no key is a 503',
   assert.equal(d.next.opponent, 'Chelsea');
   assert.doesNotMatch(JSON.stringify(d), /fd-key/);
 });
+
+// ---- calendar
+
+test('calendar: today from the secret feed; no feed is a 503; an HTML page (wrong link) is an error, not events', async () => {
+  assert.equal((await authed('/v1/calendar')).status, 503);
+  env.CALENDAR_ICS = 'https://calendar.example/secret/basic.ics';
+  const now = new Date();
+  const stamp = (h) => `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}${String(now.getUTCDate()).padStart(2, '0')}T${h}0000Z`;
+  let seen;
+  globalThis.fetch = async (url) => {
+    seen = String(url);
+    return new Response(['BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:a', `DTSTART:${stamp('12')}`, `DTEND:${stamp('13')}`, 'SUMMARY:Lunch', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n'));
+  };
+  const d = await (await authed('/v1/calendar')).json();
+  assert.equal(seen, 'https://calendar.example/secret/basic.ics');
+  assert.equal(d.tz, 'Europe/London');
+  assert.deepEqual(d.events.map((e) => e.title), ['Lunch']);
+  assert.doesNotMatch(JSON.stringify(d), /secret\/basic/);   // the feed's address never reaches the TV
+  for (const [k] of env.CACHE.m) if (k === 'calendar') env.CACHE.m.delete(k);
+  globalThis.fetch = async () => new Response('<html>Sign in</html>');
+  const bad = await authed('/v1/calendar');
+  assert.equal(bad.status, 502);
+});

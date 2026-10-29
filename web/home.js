@@ -435,12 +435,20 @@
   }
 
   /** The tab row's quiet line without crypto: Developer Mode's warning, the match when it's today, the note, the next
-   *  two trains, then the next fixture. */
+   *  two trains, then the next fixture; today's events come after a match day's line. */
   function renderExtras(q) {
     var warn = devModeWarning();
     if (warn) el('span', 'q warn', q, warn);
     var foot = footballLine();
     if (foot && foot[2]) el('span', 'q match ' + foot[1], q, foot[0]);
+    // Today's events still to come: all-day ones first, then up to three by time.
+    var events = Data.agenda;
+    if (events.length) {
+      var parts = [];
+      for (var e = 0; e < events.length && parts.length < 3; e++) if (events[e].allDay) parts.push(events[e].title);
+      for (e = 0; e < events.length && parts.length < 3; e++) if (!events[e].allDay) parts.push(Data.time(events[e].start) + ' ' + events[e].title);
+      el('span', 'q agenda', q, tr('Today') + '  ' + parts.join('  ·  '));
+    }
     if (Data.note) el('span', 'q note', q, Data.note);
     var t = Data.trains;
     if (t && t.services && t.services.length) {

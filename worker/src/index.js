@@ -1,3 +1,5 @@
+import { eventsBetween, dayBounds } from './ics.js';
+
 /**
  * The TV's backend: holds the API keys (Wrangler secrets), calls the sources, and gives the TV small JSON. The TV
  * holds only TV_TOKEN, read-only and rotatable. KV keeps each source's last success and failure (/health), and the
@@ -9,10 +11,11 @@
  *   GET /v1/trains      the next departures from TRAINS_CRS (Huxley2's National Rail feed; Cloudflare caches 60 s)
  *   GET /v1/notes       the note shown on the TV; POST {"text"} or DELETE it with ADMIN_TOKEN (make note)
  *   GET /v1/football    FOOTBALL_TEAM's live match, next fixture and last result (football-data.org, 5 min cache)
+ *   GET /v1/calendar    today's events from CALENDAR_ICS (a calendar's secret iCal address; 10 min cache)
  *   GET /health     each source's last fetch, for the TV's About screen and a monitor (no token: nothing private)
  *
  * Secrets: TV_TOKEN, ADMIN_TOKEN (writes the note; never on the TV), UKHO_KEY, GITHUB_TOKEN (fine-grained, read-only),
- * FOOTBALL_KEY (football-data.org). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
+ * FOOTBALL_KEY (football-data.org), CALENDAR_ICS (the calendar's secret iCal address: anyone with it reads the calendar). Vars: STATIONS ("0451:Mersey,0461:Dee"), ALLOWED_IPS (addresses or CIDR ranges, comma
  * separated; empty = any), GITHUB_RECENT (how many recently pushed repos, 6).
  * /v1/dashboard holds counts only, never repo names or titles: the TV's card is on a shared screen.
  */
@@ -325,6 +328,20 @@ async function football(env) {
   return pickMatches((await r.json()).matches || [], team, now);
 }
 
+// MARK: Calendar (today in CALENDAR_TZ, from the secret iCal address)
+
+const CALENDAR_FRESH = 10 * 60000;
+
+async function calendar(env) {
+  const r = await fetch(env.CALENDAR_ICS, { headers: { 'User-Agent': 'freemytv-bff' } });
+  if (!r.ok) throw new Error(`calendar feed: HTTP ${r.status}`);
+  const text = await r.text();
+  if (!text.includes('BEGIN:VCALENDAR')) throw new Error('calendar feed: not iCal');
+  const tz = env.CALENDAR_TZ || 'Europe/London';
+  const [from, to] = dayBounds(Date.now(), tz);
+  return { tz, from, to, events: eventsBetween(text, from, to, tz) };
+}
+
 // MARK: Notes (make note MSG="..." writes; the TV reads)
 
 const NOTE_MAX = 140;
@@ -386,6 +403,11 @@ export default {
       if (path === '/v1/football') {
         if (!env.FOOTBALL_KEY) return json({ error: 'no FOOTBALL_KEY' }, 503);
         const c = await cached(env, 'football', FOOTBALL_FRESH, () => football(env));
+        return json({ ...c.data, fetchedAt: c.fetchedAt, stale: c.stale, error: c.error });
+      }
+      if (path === '/v1/calendar') {
+        if (!env.CALENDAR_ICS) return json({ error: 'no CALENDAR_ICS' }, 503);
+        const c = await cached(env, 'calendar', CALENDAR_FRESH, () => calendar(env));
         return json({ ...c.data, fetchedAt: c.fetchedAt, stale: c.stale, error: c.error });
       }
       if (path === '/v1/trains') {
